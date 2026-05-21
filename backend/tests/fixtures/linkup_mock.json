@@ -1,0 +1,28 @@
+{
+  "trial_listings": "NCT05555201 — Phase II trial of sotorasib (AMG-510) in KRAS G12C NSCLC patients who have received prior platinum therapy. Recruiting at Memorial Sloan Kettering New York and Dana-Farber Boston. NCT05123456 — Phase III trial of adagrasib + pembrolizumab in KRAS G12C+ NSCLC. Recruiting at multiple US sites including New York Presbyterian. NCT04956640 — CodeBreaK 200: sotorasib vs docetaxel in previously treated NSCLC. Enrolling by invitation at MD Anderson and MSK. NCT05607056 — KRYSTAL-12: adagrasib vs docetaxel in KRAS G12C NSCLC after prior immunotherapy + chemo. Recruiting at multiple sites. NCT05002270 — Phase I/II LY3537982 (novel KRAS G12C inhibitor) combination trial. Recruiting in New York.",
+  "recent_results": "NEJM 2024: Sotorasib demonstrated 37.1% objective response rate in KRAS G12C NSCLC after prior platinum-based therapy. Median PFS 6.3 months. Grade 3+ adverse events in 19% of patients, predominantly hepatotoxicity. ASCO 2025: Adagrasib + pembrolizumab combination showed 63% ORR in treatment-naive NSCLC (KRYSTAL-7 trial). KRYSTAL-12 data: adagrasib showed superior PFS vs docetaxel (5.5 vs 3.8 months, HR 0.58) in previously treated NSCLC.",
+  "mechanism_coverage": "KRAS G12C inhibitors like sotorasib (Lumakras) and adagrasib (Krazati) work by covalently binding to the KRAS G12C mutant protein and locking it in its inactive GDP-bound state. KRAS G12C is a specific mutation found in approximately 13% of lung adenocarcinomas. Unlike traditional chemotherapy, these are once-daily oral pills that specifically target the cancer's driving mutation. The G12C mutation replaces glycine with cysteine at codon 12, creating a unique reactive site that these drugs exploit. Combination with PD-1 inhibitors (pembrolizumab) is being explored because KRAS activation suppresses anti-tumor immunity.",
+  "sources": [
+    {
+      "name": "ClinicalTrials.gov — NCT05555201",
+      "url": "https://clinicaltrials.gov/study/NCT05555201",
+      "snippet": "Phase II sotorasib KRAS G12C NSCLC recruiting MSK New York"
+    },
+    {
+      "name": "ClinicalTrials.gov — NCT05123456",
+      "url": "https://clinicaltrials.gov/study/NCT05123456",
+      "snippet": "Phase III adagrasib pembrolizumab KRAS G12C NSCLC New York Presbyterian"
+    },
+    {
+      "name": "NEJM — Sotorasib in KRAS G12C NSCLC",
+      "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2309171",
+      "snippet": "37.1% ORR, median PFS 6.3 months, previously treated NSCLC"
+    },
+    {
+      "name": "ASCO 2025 — KRYSTAL-7",
+      "url": "https://ascopubs.org/doi/10.1200/JCO.2025.example",
+      "snippet": "63% ORR adagrasib + pembrolizumab treatment-naive NSCLC"
+    }
+  ],
+  "condition": "stage 3 non-small cell lung cancer KRAS G12C (mock fixture)"
+}
