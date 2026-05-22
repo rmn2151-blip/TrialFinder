@@ -20,7 +20,11 @@ from slowapi.middleware import SlowAPIMiddleware
 
 load_dotenv()
 
+from db.database import init_db
+from routers.auth import router as auth_router
 from routers.match import limiter, router as match_router
+from routers.profiles import router as profiles_router
+from routers.watchlist import router as watchlist_router
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -84,6 +88,9 @@ app.add_middleware(SlowAPIMiddleware)
 # ---------------------------------------------------------------------------
 
 app.include_router(match_router)
+app.include_router(auth_router)
+app.include_router(profiles_router)
+app.include_router(watchlist_router)
 
 # ---------------------------------------------------------------------------
 # Startup log
@@ -92,6 +99,7 @@ app.include_router(match_router)
 
 @app.on_event("startup")
 async def startup():
+    init_db()  # create watchlist tables if they don't exist
     mock_mode = os.getenv("MOCK_LINKUP", "false").lower() == "true"
     logger.info(f"TrialFinder API started — MOCK_LINKUP={mock_mode}")
     if not os.getenv("LINKUP_API_KEY"):

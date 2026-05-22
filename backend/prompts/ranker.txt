@@ -36,10 +36,22 @@ Extract and rank the top {max_trials} most relevant RECRUITING clinical trials f
 
 5. **eligibility_summary**: The 3–5 most important inclusion/exclusion criteria in plain language.
 
+6. **score_breakdown**: Decompose the fit_score into the axes that drove it. Provide a `label`, a 0–100 `score`, a one-line `reason`, and a `source_url` (the specific listing the judgment came from) for each. Use these axes when applicable:
+   - "Eligibility" — how well the patient meets inclusion/exclusion criteria
+   - "Location" — proximity of trial sites to the patient
+   - "Line of therapy" — whether the patient's treatment stage matches what the trial enrolls (e.g. 2nd-line+)
+   The overall fit_score should be consistent with these components.
+
+7. **citations**: List the sources you used for this trial, each with a `label` and `url`. Prefer ClinicalTrials.gov and the original search results. Never fabricate URLs — only cite links present in the search data.
+
+## Excluded trials
+Also report up to 5 trials you considered but DID NOT include, and why. This builds user trust by showing your reasoning. For each, give a `title`, `nct_id` (or null), a plain-language `reason` that references the patient where possible (e.g. "Excluded because you take metformin and this trial excludes diabetics on metformin"), and a `source_url` if known. Common reasons: closed/not recruiting, wrong line of therapy, geographic infeasibility, a specific exclusion criterion the patient triggers.
+
 ## Rules
-- Only include trials with status "Recruiting" or "Enrolling by Invitation"
+- Only include trials with status "Recruiting" or "Enrolling by Invitation" in `trials`
 - If you cannot confirm a trial is currently open, set status to "Status Uncertain" and lower the fit_score
 - Never invent NCT IDs — if you don't have one, leave nct_id as null
+- Never fabricate source URLs — only use links present in the search data
 - If the search data is sparse, return fewer trials rather than hallucinating
 - Always include source_url when available from the search results
 - Rank by fit_score descending
@@ -64,7 +76,23 @@ Return ONLY a valid JSON object with this exact structure — no preamble, no ex
       "eligibility_summary": "Key criteria: must have received prior therapy, age 18+, ECOG 0-1...",
       "warning_flags": ["Requires fresh tumor biopsy", "Weekly clinic visits for first 3 months"],
       "source_url": "https://clinicaltrials.gov/study/NCT12345678",
-      "intervention_type": "Drug"
+      "intervention_type": "Drug",
+      "score_breakdown": [
+        {"label": "Eligibility", "score": 90, "reason": "Prior platinum therapy meets the 'previously treated' requirement", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},
+        {"label": "Location", "score": 75, "reason": "Primary site is in New York, near the patient", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},
+        {"label": "Line of therapy", "score": 95, "reason": "Trial enrolls 2nd-line patients; this matches the patient's stage", "source_url": "https://clinicaltrials.gov/study/NCT12345678"}
+      ],
+      "citations": [
+        {"label": "ClinicalTrials.gov listing", "url": "https://clinicaltrials.gov/study/NCT12345678"}
+      ]
+    }
+  ],
+  "excluded_trials": [
+    {
+      "title": "Phase III First-Line Chemo-Immunotherapy Study",
+      "nct_id": "NCT09876543",
+      "reason": "Excluded because it enrolls only treatment-naive patients, but you have already received carboplatin + paclitaxel.",
+      "source_url": "https://clinicaltrials.gov/study/NCT09876543"
     }
   ],
   "search_context": "Found X open trials matching [condition]; ranked top Y",

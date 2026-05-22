@@ -14,7 +14,13 @@ from pathlib import Path
 import anthropic
 
 from models.patient import PatientProfile
-from models.trial import MatchResponse, RankedTrial
+from models.trial import (
+    Citation,
+    ExcludedTrial,
+    MatchResponse,
+    RankedTrial,
+    ScoreComponent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +175,8 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
                 warning_flags=t.get("warning_flags", []),
                 source_url=t.get("source_url"),
                 intervention_type=t.get("intervention_type"),
+                score_breakdown=_parse_breakdown(t.get("score_breakdown")),
+                citations=_parse_citations(t.get("citations")),
             )
             trials.append(trial)
         except Exception as e:
@@ -183,10 +191,75 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
 
     return MatchResponse(
         trials=trials,
+        excluded=_parse_excluded(data.get("excluded_trials")),
         search_context=data.get("search_context", f"Searched for {patient.condition}"),
         disclaimer=DISCLAIMER,
         condition_searched=data.get("condition_searched", patient.condition),
     )
+
+
+def _parse_breakdown(raw) -> list[ScoreComponent]:
+    """Parse score_breakdown entries, skipping any that are malformed."""
+    out: list[ScoreComponent] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            score = int(item.get("score", 0))
+            out.append(
+                ScoreComponent(
+                    label=str(item.get("label", "")).strip() or "Factor",
+                    score=max(0, min(100, score)),
+                    reason=item.get("reason"),
+                    source_url=item.get("source_url"),
+                )
+            )
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def _parse_citations(raw) -> list[Citation]:
+    """Parse citation entries; require both a label and a url."""
+    out: list[Citation] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not url:
+            continue
+        out.append(Citation(label=str(item.get("label", "Source")).strip() or "Source", url=url))
+    return out
+
+
+def _parse_excluded(raw) -> list[ExcludedTrial]:
+    """Parse excluded_trials entries; require a title and a reason."""
+    out: list[ExcludedTrial] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        reason = item.get("reason")
+        if not title or not reason:
+            continue
+        try:
+            out.append(
+                ExcludedTrial(
+                    title=str(title),
+                    nct_id=_clean_nct_id(item.get("nct_id")),
+                    reason=str(reason),
+                    source_url=item.get("source_url"),
+                )
+            )
+        except Exception:
+            continue
+    return out
 
 
 def _clean_nct_id(raw: str | None) -> str | None:

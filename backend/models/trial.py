@@ -2,6 +2,46 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+class ScoreComponent(BaseModel):
+    """One axis of the overall fit score, with its own sub-score and source."""
+
+    label: str = Field(
+        ...,
+        description="Component name e.g. 'Eligibility', 'Location', 'Line of therapy'",
+    )
+    score: int = Field(
+        ..., ge=0, le=100, description="0–100 sub-score for this axis"
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description="One-line justification for this sub-score",
+    )
+    source_url: Optional[str] = Field(
+        default=None,
+        description="Link to the specific source this sub-score was derived from",
+    )
+
+
+class Citation(BaseModel):
+    """A source backing a trial's data, surfaced so users can verify claims."""
+
+    label: str = Field(..., description="Human-readable source label")
+    url: str = Field(..., description="Source URL")
+
+
+class ExcludedTrial(BaseModel):
+    """A trial that was considered but filtered out, with the reason why."""
+
+    title: str = Field(..., description="Trial title")
+    nct_id: Optional[str] = Field(default=None, pattern=r"^NCT\d{8}$")
+    reason: str = Field(
+        ...,
+        description="Plain-language reason this trial was excluded, ideally "
+        "referencing the patient e.g. 'Excludes patients on metformin'",
+    )
+    source_url: Optional[str] = Field(default=None)
+
+
 class RankedTrial(BaseModel):
     rank: int = Field(..., ge=1, description="Position in the ranked list (1 = best fit)")
     title: str = Field(..., description="Full trial title")
@@ -55,10 +95,23 @@ class RankedTrial(BaseModel):
         default=None,
         description="e.g. Drug, Biological, Device, Procedure, Behavioral",
     )
+    score_breakdown: list[ScoreComponent] = Field(
+        default_factory=list,
+        description="Per-axis breakdown of the overall fit_score with sources",
+    )
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="Sources backing this trial's data, for user verification",
+    )
 
 
 class MatchResponse(BaseModel):
     trials: list[RankedTrial]
+    excluded: list[ExcludedTrial] = Field(
+        default_factory=list,
+        description="Trials considered but filtered out, with reasons — surfaced "
+        "as a trust signal so users see what was ruled out and why",
+    )
     search_context: str = Field(
         ...,
         description="Summary of what was searched e.g. 'Found 14 open trials, ranked top 5'",

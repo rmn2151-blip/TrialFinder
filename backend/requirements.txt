@@ -7,3 +7,6 @@ pydantic==2.10.3
 pydantic-settings==2.6.1
 linkup-sdk==0.2.4
 slowapi==0.1.9
+SQLAlchemy==2.0.36
+PyJWT==2.9.0
+bcrypt==4.2.0
