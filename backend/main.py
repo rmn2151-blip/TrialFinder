@@ -24,6 +24,12 @@ from db.database import init_db
 from routers.auth import router as auth_router
 from routers.match import limiter, router as match_router
 from routers.profiles import router as profiles_router
+from routers.briefing import router as briefing_router
+from routers.drug_intel import router as drug_intel_router
+from routers.clarify import router as clarify_router
+from routers.intake import router as intake_router
+from routers.results import router as results_router
+from routers.reputation import router as reputation_router
 from routers.watchlist import router as watchlist_router
 
 # ---------------------------------------------------------------------------
@@ -71,9 +77,49 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+# #region agent log
+@app.middleware("http")
+async def _debug_request_log(request, call_next):
+    """Log method + path for CORS and routing diagnosis."""
+    import json
+    import time
+
+    response = await call_next(request)
+    if request.method in ("DELETE", "PUT", "OPTIONS") or request.url.path.startswith("/api/match"):
+        try:
+            with open(
+                "/Users/ruhaninagda/Documents/Claude/Projects/TrialFinder/.cursor/debug-1e06ce.log",
+                "a",
+            ) as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "1e06ce",
+                            "hypothesisId": "B",
+                            "location": "main.py:_debug_request_log",
+                            "message": "request completed",
+                            "data": {
+                                "method": request.method,
+                                "path": request.url.path,
+                                "status": response.status_code,
+                                "origin": request.headers.get("origin"),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
+    return response
+
+
+# #endregion
 
 # ---------------------------------------------------------------------------
 # Rate limiting middleware
@@ -91,6 +137,12 @@ app.include_router(match_router)
 app.include_router(auth_router)
 app.include_router(profiles_router)
 app.include_router(watchlist_router)
+app.include_router(reputation_router)
+app.include_router(drug_intel_router)
+app.include_router(briefing_router)
+app.include_router(intake_router)
+app.include_router(clarify_router)
+app.include_router(results_router)
 
 # ---------------------------------------------------------------------------
 # Startup log

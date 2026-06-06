@@ -5,6 +5,22 @@ export const MOCK_MATCH_RESPONSE = {
   search_context: "Found 12 open trials, ranked top 5 by fit.",
   disclaimer:
     "This information is for educational purposes only and does not constitute medical advice. Always consult with a qualified healthcare provider before making any treatment decisions or enrolling in a clinical trial.",
+  excluded: [
+    {
+      title: "Phase III First-Line Chemo-Immunotherapy Study",
+      nct_id: "NCT09876543",
+      reason:
+        "Excluded because it enrolls only treatment-naive patients, but you have already received carboplatin + paclitaxel.",
+      source_url: "https://clinicaltrials.gov/study/NCT09876543",
+    },
+    {
+      title: "Metformin-Restricted Metabolic Trial in NSCLC",
+      nct_id: "NCT08123456",
+      reason:
+        "Excluded because you currently take metformin, which this trial lists as an exclusion criterion.",
+      source_url: "https://clinicaltrials.gov/study/NCT08123456",
+    },
+  ],
   trials: [
     {
       rank: 1,
@@ -25,6 +41,36 @@ export const MOCK_MATCH_RESPONSE = {
       warning_flags: [],
       source_url: "https://clinicaltrials.gov/study/NCT04685135",
       intervention_type: "Drug",
+      score_breakdown: [
+        {
+          label: "Eligibility",
+          score: 90,
+          reason: "Prior platinum therapy meets the 'previously treated' requirement",
+          source_url: "https://clinicaltrials.gov/study/NCT04685135",
+        },
+        {
+          label: "Location",
+          score: 88,
+          reason: "Primary site (MSK) is ~2 miles from your location",
+          source_url: "https://clinicaltrials.gov/study/NCT04685135",
+        },
+        {
+          label: "Line of therapy",
+          score: 95,
+          reason: "Enrolls 2nd-line patients, matching your treatment stage",
+          source_url: "https://clinicaltrials.gov/study/NCT04685135",
+        },
+      ],
+      citations: [
+        {
+          label: "ClinicalTrials.gov listing",
+          url: "https://clinicaltrials.gov/study/NCT04685135",
+        },
+        {
+          label: "NEJM — Adagrasib in KRAS G12C NSCLC",
+          url: "https://www.nejm.org/doi/full/10.1056/NEJMoa2204619",
+        },
+      ],
     },
     {
       rank: 2,
@@ -45,6 +91,32 @@ export const MOCK_MATCH_RESPONSE = {
       warning_flags: ["May require a fresh tumor biopsy before enrollment."],
       source_url: "https://clinicaltrials.gov/study/NCT04613596",
       intervention_type: "Drug",
+      score_breakdown: [
+        {
+          label: "Eligibility",
+          score: 82,
+          reason: "Fits the second-line population this study enrolls",
+          source_url: "https://clinicaltrials.gov/study/NCT04613596",
+        },
+        {
+          label: "Location",
+          score: 80,
+          reason: "Site is ~5 miles from your location",
+          source_url: "https://clinicaltrials.gov/study/NCT04613596",
+        },
+        {
+          label: "Line of therapy",
+          score: 85,
+          reason: "Allows one prior line of systemic therapy",
+          source_url: "https://clinicaltrials.gov/study/NCT04613596",
+        },
+      ],
+      citations: [
+        {
+          label: "ClinicalTrials.gov listing",
+          url: "https://clinicaltrials.gov/study/NCT04613596",
+        },
+      ],
     },
     {
       rank: 3,

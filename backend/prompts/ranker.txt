@@ -36,6 +36,14 @@ Extract and rank the top {max_trials} most relevant RECRUITING clinical trials f
 
 5. **eligibility_summary**: The 3–5 most important inclusion/exclusion criteria in plain language.
 
+5a. **washout_weeks**: An integer count of weeks the patient must be off prior systemic therapy before they can enroll. Read this from the eligibility text. If the trial allows immediate enrollment after prior therapy, output 0. If unclear or not stated, omit the field.
+
+5b. **biomarker_match**: ONE plain-English sentence describing how the patient's biomarkers fit this trial. If the trial requires a specific mutation and the patient has it, say so (e.g. "Matches your KRAS G12C+ status — this trial requires it"). If a biomarker is required but the patient hasn't reported it, say so cautiously ("Requires KRAS G12C+ — confirm your test result with your oncologist"). If a biomarker would disqualify them, say so. Omit if biomarkers aren't relevant.
+
+5c. **matched_biomarkers**: A short list of the patient's reported biomarkers that satisfy this trial's eligibility (e.g. ["KRAS G12C+"]). Empty if none apply.
+
+Biomarker rule: when a patient's reported biomarkers exactly satisfy a trial's required mutation, heavily weight the Eligibility sub-score (toward 95–100) and the overall fit_score. When a required biomarker is missing, the Eligibility sub-score should be ≤ 50 unless the trial doesn't require it.
+
 6. **score_breakdown**: Decompose the fit_score into the axes that drove it. Provide a `label`, a 0–100 `score`, a one-line `reason`, and a `source_url` (the specific listing the judgment came from) for each. Use these axes when applicable:
    - "Eligibility" — how well the patient meets inclusion/exclusion criteria
    - "Location" — proximity of trial sites to the patient
@@ -77,6 +85,9 @@ Return ONLY a valid JSON object with this exact structure — no preamble, no ex
       "warning_flags": ["Requires fresh tumor biopsy", "Weekly clinic visits for first 3 months"],
       "source_url": "https://clinicaltrials.gov/study/NCT12345678",
       "intervention_type": "Drug",
+      "washout_weeks": 0,
+      "biomarker_match": "Matches your KRAS G12C+ status — this trial requires it.",
+      "matched_biomarkers": ["KRAS G12C+"],
       "score_breakdown": [
         {"label": "Eligibility", "score": 90, "reason": "Prior platinum therapy meets the 'previously treated' requirement", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},
         {"label": "Location", "score": 75, "reason": "Primary site is in New York, near the patient", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},

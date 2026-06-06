@@ -11,18 +11,33 @@ const COMMON_CONDITIONS = [
   "Rheumatoid Arthritis",
 ];
 
-const STEPS = ["Condition", "Treatments", "Location & age", "Medications"];
+const STEPS = [
+  "Condition",
+  "Treatments",
+  "Location & age",
+  "Medications",
+  "Biomarkers",
+];
 
-export default function IntakeForm({ onSubmit }) {
+export default function IntakeForm({ onSubmit, initial = null }) {
   const [step, setStep] = useState(0);
 
-  const [condition, setCondition] = useState("");
-  const [treatmentHistory, setTreatmentHistory] = useState("");
-  const [location, setLocation] = useState("");
-  const [age, setAge] = useState("");
-  const [medications, setMedications] = useState([]);
+  const [condition, setCondition] = useState(initial?.condition || "");
+  const [treatmentHistory, setTreatmentHistory] = useState(
+    initial?.treatment_history || ""
+  );
+  const [location, setLocation] = useState(initial?.location || "");
+  const [age, setAge] = useState(initial?.age != null ? String(initial.age) : "");
+  const [medications, setMedications] = useState(initial?.medications || []);
   const [medInput, setMedInput] = useState("");
-  const [additionalContext, setAdditionalContext] = useState("");
+  const [additionalContext, setAdditionalContext] = useState(
+    initial?.additional_context || ""
+  );
+  const [biomarkers, setBiomarkers] = useState(initial?.biomarkers || []);
+  const [bioInput, setBioInput] = useState("");
+  const [lastTreatmentDate, setLastTreatmentDate] = useState(
+    initial?.last_treatment_date || ""
+  );
   const [error, setError] = useState("");
 
   const isLastStep = step === STEPS.length - 1;
@@ -92,8 +107,23 @@ export default function IntakeForm({ onSubmit }) {
     if (age !== "") payload.age = Number(age);
     if (additionalContext.trim())
       payload.additional_context = additionalContext.trim();
+    if (biomarkers.length) payload.biomarkers = biomarkers;
+    if (lastTreatmentDate) payload.last_treatment_date = lastTreatmentDate;
 
     onSubmit(payload);
+  }
+
+  function addBiomarker() {
+    const b = bioInput.trim();
+    if (b && !biomarkers.includes(b)) setBiomarkers((m) => [...m, b]);
+    setBioInput("");
+  }
+
+  function handleBioKeyDown(e) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addBiomarker();
+    }
   }
 
   return (
@@ -269,10 +299,72 @@ export default function IntakeForm({ onSubmit }) {
               className="field__input field__textarea"
               value={additionalContext}
               onChange={(e) => setAdditionalContext(e.target.value)}
-              placeholder="Biomarkers, ECOG status, insurance, or anything else relevant"
+              placeholder="ECOG status, insurance, or anything else relevant"
               rows={4}
               maxLength={2000}
             />
+          </label>
+        </fieldset>
+      )}
+
+      {/* Step 5 — Biomarkers + last treatment date */}
+      {step === 4 && (
+        <fieldset className="intake__panel">
+          <legend className="intake__legend">
+            Any biomarker results or recent treatment?
+          </legend>
+          <label className="field">
+            <span className="field__label">
+              Biomarkers <span className="field__opt">(optional)</span>
+            </span>
+            <input
+              type="text"
+              className="field__input"
+              value={bioInput}
+              onChange={(e) => setBioInput(e.target.value)}
+              onKeyDown={handleBioKeyDown}
+              onBlur={addBiomarker}
+              placeholder="e.g. KRAS G12C+, HER2 amplified, BRCA1 mutation"
+            />
+            <span className="field__hint">
+              Add one at a time. Biomarker matches are the #1 reason cancer
+              trials accept or reject patients — sharing them dramatically
+              improves match quality.
+            </span>
+            {biomarkers.length > 0 && (
+              <ul className="tag-list" aria-label="Added biomarkers">
+                {biomarkers.map((b) => (
+                  <li key={b} className="tag">
+                    {b}
+                    <button
+                      type="button"
+                      className="tag__remove"
+                      onClick={() =>
+                        setBiomarkers((m) => m.filter((x) => x !== b))
+                      }
+                      aria-label={`Remove ${b}`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </label>
+
+          <label className="field field--narrow">
+            <span className="field__label">
+              Last treatment date <span className="field__opt">(optional)</span>
+            </span>
+            <input
+              type="date"
+              className="field__input"
+              value={lastTreatmentDate}
+              onChange={(e) => setLastTreatmentDate(e.target.value)}
+            />
+            <span className="field__hint">
+              We use this to compute washout-period eligibility per trial.
+            </span>
           </label>
         </fieldset>
       )}

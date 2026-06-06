@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import TrialCard from "./TrialCard.jsx";
+import ExcludedTrials from "./ExcludedTrials.jsx";
+import { downloadBriefingPdf } from "../api/client.js";
 
 // Approximate distance pulled from the location string ("… — 2.1 miles away").
 function distanceOf(trial) {
@@ -23,8 +25,22 @@ const SORTS = {
   phase: { label: "Latest phase", fn: (a, b) => phaseRank(b) - phaseRank(a) },
 };
 
-export default function ResultsPage({ data }) {
+export default function ResultsPage({ data, patient }) {
   const [sortKey, setSortKey] = useState("fit");
+  const [pdfStatus, setPdfStatus] = useState("idle"); // idle | busy | error
+  const [pdfError, setPdfError] = useState("");
+
+  async function handleDownloadPdf() {
+    setPdfStatus("busy");
+    setPdfError("");
+    try {
+      await downloadBriefingPdf(patient, data);
+      setPdfStatus("idle");
+    } catch (err) {
+      setPdfError(err.message);
+      setPdfStatus("error");
+    }
+  }
 
   const sorted = useMemo(() => {
     return [...(data.trials || [])].sort(SORTS[sortKey].fn);
@@ -46,30 +62,48 @@ export default function ResultsPage({ data }) {
           </p>
         </div>
 
-        <div className="results__sort">
-          <label htmlFor="sort" className="results__sort-label">
-            Sort by
-          </label>
-          <select
-            id="sort"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value)}
-            className="results__sort-select"
-          >
-            {Object.entries(SORTS).map(([key, { label }]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+        <div className="results__controls">
+          {patient && (
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={handleDownloadPdf}
+              disabled={pdfStatus === "busy"}
+              title="Generate a 1–2 page PDF for your oncologist"
+            >
+              {pdfStatus === "busy" ? "Generating…" : "📄 Briefing for your doctor"}
+            </button>
+          )}
+          <div className="results__sort">
+            <label htmlFor="sort" className="results__sort-label">
+              Sort by
+            </label>
+            <select
+              id="sort"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value)}
+              className="results__sort-select"
+            >
+              {Object.entries(SORTS).map(([key, { label }]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </header>
 
+      {pdfError && (
+        <p className="intake__error" role="alert">{pdfError}</p>
+      )}
+
       <div className="results__list">
         {sorted.map((trial) => (
-          <TrialCard key={trial.nct_id || trial.rank} trial={trial} />
+          <TrialCard key={trial.nct_id || trial.rank} trial={trial} patient={patient} />
         ))}
       </div>
+
+      <ExcludedTrials excluded={data.excluded} />
 
       <footer className="results__disclaimer">
         <p>{data.disclaimer}</p>

@@ -41,5 +41,5 @@ export default function Results() {
   if (status === "error") return <ErrorState message={error} onRetry={runSearch} />;
   if (status === "done" && (!data?.trials || data.trials.length === 0))
     return <EmptyState />;
-  return <ResultsPage data={data} />;
+  return <ResultsPage data={data} patient={patient} />;
 }

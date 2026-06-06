@@ -34,10 +34,24 @@ class PatientProfile(BaseModel):
         description="Current medications (used to flag interaction/exclusion criteria)",
         examples=[["metformin", "lisinopril"]],
     )
+    biomarkers: list[str] = Field(
+        default_factory=list,
+        description="Genomic / biomarker test results — the #1 reason cancer trial "
+        "matches fail. Each entry is a free-text label e.g. 'KRAS G12C+', "
+        "'EGFR exon 19 deletion', 'HER2 amplified', 'BRCA1 mutation', "
+        "'MSI-high', 'PD-L1 50% TPS', 'BRCA1 negative'.",
+        examples=[["KRAS G12C+", "PD-L1 50% TPS"]],
+    )
+    last_treatment_date: Optional[str] = Field(
+        default=None,
+        description="Date the patient's most recent systemic therapy ended (YYYY-MM-DD). "
+        "Used to compute washout-period eligibility per trial.",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
     additional_context: Optional[str] = Field(
         default=None,
         max_length=2000,
-        description="Any other relevant details: biomarkers, ECOG status, insurance, etc.",
+        description="Any other relevant details: ECOG status, insurance, etc.",
     )
 
     model_config = {

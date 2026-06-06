@@ -1,0 +1,64 @@
+{
+  "trials": [
+    {
+      "rank": 1,
+      "title": "Phase II Study of Adagrasib (MRTX849) in Previously Treated KRAS G12C-Mutated NSCLC",
+      "nct_id": "NCT04685135",
+      "phase": "Phase II",
+      "sponsor": "Memorial Sloan Kettering Cancer Center",
+      "location": "New York, NY",
+      "status": "Recruiting",
+      "fit_score": 92,
+      "why_this_fits": "This trial targets KRAS G12C mutations and enrolls previously treated patients near your location.",
+      "plain_english": "A once-daily pill that blocks the KRAS G12C protein driving tumor growth.",
+      "eligibility_summary": "Must have received prior platinum-based chemotherapy.",
+      "warning_flags": [],
+      "source_url": "https://clinicaltrials.gov/study/NCT04685135",
+      "intervention_type": "Drug",
+      "score_breakdown": [
+        {"label": "Eligibility", "score": 90, "reason": "Prior platinum therapy meets requirement", "source_url": "https://clinicaltrials.gov/study/NCT04685135"},
+        {"label": "Location", "score": 88, "reason": "Primary site is near your location", "source_url": "https://clinicaltrials.gov/study/NCT04685135"},
+        {"label": "Line of therapy", "score": 95, "reason": "Enrolls 2nd-line patients", "source_url": "https://clinicaltrials.gov/study/NCT04685135"}
+      ],
+      "citations": [
+        {"label": "ClinicalTrials.gov listing", "url": "https://clinicaltrials.gov/study/NCT04685135"}
+      ],
+      "washout_weeks": 4,
+      "biomarker_match": "KRAS G12C required",
+      "matched_biomarkers": ["KRAS G12C+"]
+    },
+    {
+      "rank": 2,
+      "title": "Sotorasib Plus Pembrolizumab in KRAS G12C-Mutant NSCLC",
+      "nct_id": "NCT04613596",
+      "phase": "Phase I/II",
+      "sponsor": "Amgen",
+      "location": "New York, NY",
+      "status": "Recruiting",
+      "fit_score": 78,
+      "why_this_fits": "Combines a KRAS G12C inhibitor with immunotherapy for patients who have progressed on prior therapy.",
+      "plain_english": "Tests whether adding an immunotherapy drug boosts the effect of the KRAS pill.",
+      "eligibility_summary": "Prior systemic therapy required. ECOG 0-1.",
+      "warning_flags": ["Combination therapy — more monitoring visits than single-agent trials."],
+      "source_url": "https://clinicaltrials.gov/study/NCT04613596",
+      "intervention_type": "Drug",
+      "score_breakdown": [
+        {"label": "Eligibility", "score": 80, "reason": "Prior therapy requirement met", "source_url": "https://clinicaltrials.gov/study/NCT04613596"},
+        {"label": "Location", "score": 85, "reason": "Recruiting in New York", "source_url": "https://clinicaltrials.gov/study/NCT04613596"}
+      ],
+      "citations": [
+        {"label": "ClinicalTrials.gov listing", "url": "https://clinicaltrials.gov/study/NCT04613596"}
+      ]
+    }
+  ],
+  "excluded_trials": [
+    {
+      "title": "Phase III First-Line Chemo-Immunotherapy Study",
+      "nct_id": "NCT09876543",
+      "reason": "Enrolls only treatment-naive patients, but you have prior therapy.",
+      "source_url": "https://clinicaltrials.gov/study/NCT09876543"
+    }
+  ],
+  "search_context": "Found open KRAS G12C trials (mock fixture — set ANTHROPIC_API_KEY for live ranking).",
+  "condition_searched": "stage 3 non-small cell lung cancer KRAS G12C"
+}

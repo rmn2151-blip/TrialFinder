@@ -15,6 +15,10 @@ import os
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
 from db.database import get_db
 from db.models import Account
 from models.watchlist import (
@@ -25,6 +29,20 @@ from models.watchlist import (
 )
 from routers.security import get_current_account
 from services import profile_service, watchlist_service
+
+VALID_ENROLLMENT_STATUSES = {
+    "interested",
+    "contacted",
+    "waiting",
+    "screened",
+    "enrolled",
+    "withdrawn",
+    "declined",
+}
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str = Field(..., description="One of: interested, contacted, waiting, screened, enrolled, withdrawn, declined")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -81,6 +99,31 @@ def delete_from_watchlist(
     db.delete(watch)
     db.commit()
     return None
+
+
+@router.put("/{watch_id}/status", response_model=WatchedTrialOut)
+def update_enrollment_status(
+    watch_id: int,
+    body: StatusUpdateRequest,
+    account: Account = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """Log the patient's enrollment progress: interested → contacted → … → enrolled."""
+    new_status = body.status.lower().strip()
+    if new_status not in VALID_ENROLLMENT_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {sorted(VALID_ENROLLMENT_STATUSES)}",
+        )
+    watch = watchlist_service.get_owned_watch(db, account.id, watch_id)
+    if watch is None:
+        raise HTTPException(status_code=404, detail="Watched trial not found")
+    if watch.enrollment_status != new_status:
+        watch.enrollment_status = new_status
+        watch.enrollment_changed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(watch)
+    return watch
 
 
 @router.post("/check", response_model=CheckSummary)

@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import IntakeForm from "../components/IntakeForm.jsx";
+import ConversationalIntake from "../components/ConversationalIntake.jsx";
+import { useProfiles } from "../context/ProfileContext.jsx";
 
 export default function Home() {
   const [showForm, setShowForm] = useState(false);
+  const [mode, setMode] = useState("form"); // 'form' | 'chat'
+  const [prefill, setPrefill] = useState(false);
   const navigate = useNavigate();
+  const { selected } = useProfiles();
 
   function handleSubmit(patientData) {
     // Hand the profile to the Results route via router state, then let
@@ -12,7 +17,8 @@ export default function Home() {
     navigate("/results", { state: { patient: patientData } });
   }
 
-  function startIntake() {
+  function startIntake(usePrefill = false) {
+    setPrefill(usePrefill);
     setShowForm(true);
     // Defer scroll until the form has mounted.
     requestAnimationFrame(() => {
@@ -33,9 +39,19 @@ export default function Home() {
           Describe your condition in plain English. We&apos;ll match you to
           recruiting trials and explain why each one might be right for you.
         </p>
-        <button className="btn btn--primary btn--lg" onClick={startIntake}>
-          Get started
-        </button>
+        <div className="hero__cta">
+          <button className="btn btn--primary btn--lg" onClick={() => startIntake(false)}>
+            Get started
+          </button>
+          {selected && (
+            <button
+              className="btn btn--ghost btn--lg"
+              onClick={() => startIntake(true)}
+            >
+              Search for {selected.label}
+            </button>
+          )}
+        </div>
 
         <ul className="hero__stats" aria-label="At a glance">
           <li>
@@ -61,7 +77,33 @@ export default function Home() {
 
       {showForm && (
         <section id="intake" className="intake-section" aria-label="Patient intake">
-          <IntakeForm onSubmit={handleSubmit} />
+          <div className="mode-toggle" role="tablist" aria-label="Intake style">
+            <button
+              role="tab"
+              aria-selected={mode === "form"}
+              className={"mode-toggle__btn" + (mode === "form" ? " is-active" : "")}
+              onClick={() => setMode("form")}
+            >
+              Form intake
+            </button>
+            <button
+              role="tab"
+              aria-selected={mode === "chat"}
+              className={"mode-toggle__btn" + (mode === "chat" ? " is-active" : "")}
+              onClick={() => setMode("chat")}
+            >
+              Chat with our assistant
+            </button>
+          </div>
+
+          {mode === "form" ? (
+            <IntakeForm
+              onSubmit={handleSubmit}
+              initial={prefill && selected ? selected : null}
+            />
+          ) : (
+            <ConversationalIntake onComplete={handleSubmit} />
+          )}
         </section>
       )}
 

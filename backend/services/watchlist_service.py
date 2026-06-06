@@ -11,9 +11,11 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import asyncio
+
 from db.models import Account, PatientProfile, WatchedTrial
 from models.watchlist import CheckSummary
-from services import ctgov_service, email_service
+from services import ctgov_service, email_service, results_service
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,28 @@ def run_check(db: Session, *, send_email: bool = True) -> CheckSummary:
                     details.append(
                         f"{account.email} · {profile.label} · {watch.nct_id}: {'; '.join(changes)}"
                     )
+
+                # If this trial just became Completed and we haven't fetched
+                # results yet, pull a plain-English results summary now.
+                new_status = (fresh.get("status") or "").lower()
+                if (
+                    "complet" in new_status
+                    and not watch.results_summary
+                ):
+                    try:
+                        results = asyncio.run(
+                            results_service.fetch_results_summary(
+                                watch.nct_id, watch.title
+                            )
+                        )
+                        watch.results_headline = results.headline
+                        watch.results_summary = results.summary
+                        watch.results_journal_url = results.journal_url
+                        watch.results_fetched_at = now
+                    except Exception as exc:
+                        logger.warning(
+                            "Results fetch failed for %s: %s", watch.nct_id, exc
+                        )
 
                 # Update the stored snapshot regardless, so we don't re-alert.
                 watch.last_status = fresh.get("status")

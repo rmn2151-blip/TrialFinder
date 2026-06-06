@@ -57,6 +57,8 @@ class PatientProfile(Base):
     location = Column(String(200), nullable=False)
     age = Column(Integer, nullable=True)
     medications = Column(JSON, default=list, nullable=False)
+    biomarkers = Column(JSON, default=list, nullable=False)
+    last_treatment_date = Column(String(10), nullable=True)
     additional_context = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -89,6 +91,16 @@ class WatchedTrial(Base):
     last_phase = Column(String(40), nullable=True)
     last_completion_date = Column(String(40), nullable=True)
     last_site_count = Column(Integer, nullable=True)
+
+    # Trial result tracker — populated when status flips to Completed.
+    results_headline = Column(Text, nullable=True)
+    results_summary = Column(Text, nullable=True)
+    results_journal_url = Column(Text, nullable=True)
+    results_fetched_at = Column(DateTime, nullable=True)
+
+    # Enrollment status tracker
+    enrollment_status = Column(String(40), nullable=True, default="interested")
+    enrollment_changed_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_checked_at = Column(DateTime, nullable=True)

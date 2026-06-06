@@ -25,9 +25,11 @@ from models.trial import (
 logger = logging.getLogger(__name__)
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_MOCK_MODE = os.getenv("MOCK_LINKUP", "false").lower() == "true"
 _MAX_TRIALS = int(os.getenv("MAX_TRIALS_RETURNED", "5"))
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "ranker.txt"
+_MOCK_MATCH_PATH = Path(__file__).parent.parent / "tests" / "fixtures" / "match_mock.json"
 
 DISCLAIMER = (
     "This information is for educational purposes only and does not constitute "
@@ -52,6 +54,33 @@ async def rank_and_reason(
     Returns a MatchResponse ready to send to the frontend.
     """
     if not _ANTHROPIC_API_KEY:
+        if _MOCK_MODE:
+            # #region agent log
+            try:
+                import time
+
+                with open(
+                    "/Users/ruhaninagda/Documents/Claude/Projects/TrialFinder/.cursor/debug-1e06ce.log",
+                    "a",
+                ) as f:
+                    f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "1e06ce",
+                                "hypothesisId": "A",
+                                "location": "llm_service.py:rank_and_reason",
+                                "message": "mock match path (no ANTHROPIC key)",
+                                "data": {"mock_mode": True, "condition": patient.condition},
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except OSError:
+                pass
+            # #endregion
+            logger.info("MOCK_LINKUP=true — returning fixture match response")
+            return _load_mock_match(patient)
         raise ValueError("ANTHROPIC_API_KEY is not set. Add it to your .env file.")
 
     prompt = _build_prompt(patient, linkup_data)
@@ -60,6 +89,20 @@ async def rank_and_reason(
 
     raw_json = await _call_claude(prompt)
     return _parse_response(raw_json, patient)
+
+
+def _load_mock_match(patient: PatientProfile) -> MatchResponse:
+    """Return a fixture-based MatchResponse for dev/demo without Anthropic."""
+    if _MOCK_MATCH_PATH.exists():
+        raw = _MOCK_MATCH_PATH.read_text(encoding="utf-8")
+    else:
+        raw = json.dumps({"trials": [], "search_context": "Mock fixture missing."})
+    response = _parse_response(raw, patient)
+    response.condition_searched = patient.condition
+    response.search_context = (
+        response.search_context or f"Mock results for {patient.condition}"
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +220,14 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
                 intervention_type=t.get("intervention_type"),
                 score_breakdown=_parse_breakdown(t.get("score_breakdown")),
                 citations=_parse_citations(t.get("citations")),
+                washout_weeks=_parse_int(t.get("washout_weeks"), lo=0, hi=52),
+                biomarker_match=_parse_str(t.get("biomarker_match")),
+                matched_biomarkers=_parse_str_list(t.get("matched_biomarkers")),
+            )
+            # Compute the earliest enrollable date if we have both the patient's
+            # last treatment date and the trial's washout period.
+            trial.earliest_enrollable_date = _compute_earliest_date(
+                trial.washout_weeks, patient.last_treatment_date
             )
             trials.append(trial)
         except Exception as e:
@@ -260,6 +311,42 @@ def _parse_excluded(raw) -> list[ExcludedTrial]:
         except Exception:
             continue
     return out
+
+
+def _parse_int(raw, *, lo: int, hi: int):
+    """Parse an integer in [lo, hi], returning None on anything else."""
+    if raw is None:
+        return None
+    try:
+        v = int(raw)
+    except (ValueError, TypeError):
+        return None
+    return max(lo, min(hi, v))
+
+
+def _parse_str(raw):
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
+def _parse_str_list(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def _compute_earliest_date(washout_weeks, last_treatment_date):
+    """If we know washout_weeks and last_treatment_date, return YYYY-MM-DD."""
+    if washout_weeks is None or not last_treatment_date:
+        return None
+    from datetime import datetime, timedelta
+    try:
+        base = datetime.strptime(last_treatment_date, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return (base + timedelta(weeks=washout_weeks)).strftime("%Y-%m-%d")
 
 
 def _clean_nct_id(raw: str | None) -> str | None:

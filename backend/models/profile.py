@@ -13,6 +13,15 @@ class ProfileBase(BaseModel):
     location: str = Field(..., min_length=2, max_length=200)
     age: Optional[int] = Field(default=None, ge=0, le=120)
     medications: list[str] = Field(default_factory=list)
+    biomarkers: list[str] = Field(
+        default_factory=list,
+        description="Genomic / biomarker results e.g. 'KRAS G12C+', 'HER2 amplified'",
+    )
+    last_treatment_date: Optional[str] = Field(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="Date most recent systemic therapy ended (YYYY-MM-DD)",
+    )
     additional_context: Optional[str] = Field(default=None, max_length=2000)
 
 

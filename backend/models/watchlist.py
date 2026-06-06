@@ -29,6 +29,15 @@ class WatchedTrialOut(BaseModel):
     last_checked_at: Optional[datetime] = None
     last_change_at: Optional[datetime] = None
 
+    # Trial result tracker fields
+    results_headline: Optional[str] = None
+    results_summary: Optional[str] = None
+    results_journal_url: Optional[str] = None
+
+    # Enrollment status tracker
+    enrollment_status: Optional[str] = None
+    enrollment_changed_at: Optional[datetime] = None
+
     model_config = {"from_attributes": True}
 
 

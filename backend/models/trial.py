@@ -103,6 +103,28 @@ class RankedTrial(BaseModel):
         default_factory=list,
         description="Sources backing this trial's data, for user verification",
     )
+    washout_weeks: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=52,
+        description="Required weeks off prior systemic therapy before enrollment, "
+        "extracted from the trial's eligibility text. 0 = no washout required.",
+    )
+    earliest_enrollable_date: Optional[str] = Field(
+        default=None,
+        description="Computed earliest date the patient could enroll (YYYY-MM-DD), "
+        "based on last_treatment_date + washout_weeks. Null if not computable.",
+    )
+    biomarker_match: Optional[str] = Field(
+        default=None,
+        description="Plain-English note about which patient biomarkers fit (or fail) "
+        "this trial's eligibility e.g. 'Matches your KRAS G12C+ status' or "
+        "'Requires HER2- but you reported HER2+'",
+    )
+    matched_biomarkers: list[str] = Field(
+        default_factory=list,
+        description="Patient biomarkers that satisfy this trial's requirements",
+    )
 
 
 class MatchResponse(BaseModel):
