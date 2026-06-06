@@ -29,9 +29,17 @@ def _secret() -> str:
     if not secret:
         logger.warning(
             "JWT_SECRET not set — using an insecure dev default. "
-            "Set JWT_SECRET in your environment before deploying."
+            "Set JWT_SECRET in your environment before deploying. "
+            'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
         )
-        return "dev-insecure-secret-change-me"
+        # Must be >= 32 bytes for HS256 to satisfy RFC 7518; the previous
+        # 28-char fallback triggered PyJWT's InsecureKeyLengthWarning.
+        return "dev-insecure-secret-change-me-before-production-deployment-now"
+    if len(secret.encode("utf-8")) < 32:
+        logger.warning(
+            "JWT_SECRET is shorter than 32 bytes — RFC 7518 recommends >= 32 "
+            "bytes for HS256. Increase its length."
+        )
     return secret
 
 
