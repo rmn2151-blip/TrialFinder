@@ -1,25 +1,25 @@
 # TrialFinder
 
-finding the right clinical trial is genuinely hard. clinicaltrials.gov has 500k+ studies and the eligibility criteria read like legal documents. most people spend hours searching and still end up with a list of trials they don't understand and can't tell if they qualify for.
+Finding the right clinical trial is genuinely hard. clinicaltrials.gov has 500k+ studies and the eligibility criteria read like legal documents. most people spend hours searching and still end up with a list of trials they don't understand and can't tell if they qualify for.
 
 TrialFinder fixes that. you describe your condition, your treatment history, your location, and your current meds in plain english and it gives you back a ranked shortlist of open trials that actually fit you, with a plain english explanation of why each one is a match.
 
-built for the Linkup Hackathon.
+Built for the Pfizer Hackathon.
 
 ---
 
 ## how it works
 
-1. you fill out a short intake form covering your condition, biomarkers, treatments you've tried, where you are, and what medications you're on
-2. the app fires three parallel searches using the Linkup API to pull open trials from clinicaltrials.gov, recent results from related trials, and journal coverage explaining what each trial is actually testing
+1. You fill out a short intake form covering your condition, biomarkers, treatments you've tried, where you are, and what medications you're on
+2. The app fires three parallel searches using the Linkup API to pull open trials from clinicaltrials.gov, recent results from related trials, and journal coverage explaining what each trial is actually testing
 3. Claude reads all of that against your profile and ranks the top trials by fit, writing a personalized "why this fits you" explanation for each one
-4. you get a clean list with fit scores, plain english summaries, eligibility at a glance, and flags for anything that might be a problem
+4. You get a clean list with fit scores, plain english summaries, eligibility at a glance, and flags for anything that might be a problem
 
-the whole thing takes about 15-30 seconds.
+The whole thing takes about 15-30 seconds.
 
 ---
 
-## features
+## Features
 
 **matching**
 - AI ranking with a 0-100 fit score per trial
@@ -30,19 +30,19 @@ the whole thing takes about 15-30 seconds.
 - excluded trials panel so you can see what got ruled out and why
 - falls back to the free ClinicalTrials.gov API automatically when search results are thin
 
-**your account**
+**Your account**
 - save trials to a watchlist and get email alerts when a trial status changes
 - multi-profile support so caregivers can search for family members (just switch profiles in the header)
 - full auth with email and password
 
-**understanding trials**
+**Understanding trials**
 - site and PI reputation lookup for each trial card
 - plain english drug briefings for the intervention each trial is testing
 - educational pages on what clinical trial phases actually mean and what to expect if you enroll
 
 ---
 
-## tech stack
+## Tech stack
 
 - frontend: React with Vite
 - backend: FastAPI (Python)
