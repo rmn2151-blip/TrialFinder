@@ -149,3 +149,4 @@ each patient search costs roughly $0.06-0.12 in Linkup credits (3 queries at sta
 ---
 
 built by Ruhani Nagda
+Devnah Trivedi 
