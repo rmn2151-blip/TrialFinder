@@ -41,6 +41,15 @@ export const MOCK_MATCH_RESPONSE = {
       warning_flags: [],
       source_url: "https://clinicaltrials.gov/study/NCT04685135",
       intervention_type: "Drug",
+      insurance_coverage: [
+        "Medicare",
+        "Blue Cross Blue Shield",
+        "UnitedHealthcare",
+        "Aetna",
+        "Cigna",
+      ],
+      insurance_note:
+        "Sponsor covers the experimental drug and study-only procedures; routine visits and labs go through your insurance.",
       score_breakdown: [
         {
           label: "Eligibility",

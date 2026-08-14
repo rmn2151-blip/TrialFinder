@@ -11,26 +11,39 @@ indiscriminately.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from middleware.abuse import block_automated_clients, enforce_ai_quota
+from middleware.rate_limit import limiter
 from models.reputation import Reputation
+from models.validators import clean_freetext_for_llm
 from services import reputation_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/reputation", tags=["reputation"])
-limiter = Limiter(key_func=get_remote_address)
 
 
-@router.get("", response_model=Reputation)
-@limiter.limit("20/minute")
+@router.get(
+    "",
+    response_model=Reputation,
+    dependencies=[Depends(block_automated_clients)],
+)
+@limiter.limit("10/minute;60/hour")
 async def get_reputation(
     request: Request,
     sponsor: str = Query(..., min_length=2, max_length=200),
     pi: str | None = Query(default=None, max_length=200),
 ):
+    # Query params are user input and are forwarded into an LLM prompt, so
+    # they get the same sanitization as body fields.
+    sponsor = clean_freetext_for_llm(sponsor, max_length=200, field="Sponsor")
+    pi = clean_freetext_for_llm(pi, max_length=200, field="Investigator")
+    if not sponsor:
+        raise HTTPException(status_code=400, detail="Sponsor is required.")
+
+    enforce_ai_quota(request)
+
     try:
         return await reputation_service.get_reputation(sponsor=sponsor, pi=pi)
     except ValueError as e:

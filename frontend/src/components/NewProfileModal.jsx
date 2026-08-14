@@ -8,11 +8,19 @@ export default function NewProfileModal({ onClose }) {
   const [location, setLocation] = useState("");
   const [treatmentHistory, setTreatmentHistory] = useState("");
   const [age, setAge] = useState("");
+  const [medications, setMedications] = useState([]);
+  const [medInput, setMedInput] = useState("");
   const [biomarkers, setBiomarkers] = useState([]);
   const [bioInput, setBioInput] = useState("");
   const [lastTreatmentDate, setLastTreatmentDate] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function addMedication() {
+    const m = medInput.trim();
+    if (m && !medications.includes(m)) setMedications((xs) => [...xs, m]);
+    setMedInput("");
+  }
 
   function addBiomarker() {
     const b = bioInput.trim();
@@ -26,15 +34,17 @@ export default function NewProfileModal({ onClose }) {
     if (label.trim().length < 1) return setError("Please give this profile a name.");
     if (condition.trim().length < 3) return setError("Please enter a condition.");
     if (location.trim().length < 2) return setError("Please enter a location.");
+    if (treatmentHistory.trim().length < 1) return setError("Please list treatment history. Type 'none' if not yet treated.");
+    if (medications.length < 1) return setError("Please add at least one medication. Add 'none' if not applicable.");
     setBusy(true);
     try {
       const payload = {
         label: label.trim(),
         condition: condition.trim(),
         location: location.trim(),
-        medications: [],
+        treatment_history: treatmentHistory.trim(),
+        medications,
       };
-      if (treatmentHistory.trim()) payload.treatment_history = treatmentHistory.trim();
       if (age !== "") payload.age = Number(age);
       if (biomarkers.length) payload.biomarkers = biomarkers;
       if (lastTreatmentDate) payload.last_treatment_date = lastTreatmentDate;
@@ -90,15 +100,48 @@ export default function NewProfileModal({ onClose }) {
             />
           </label>
           <label className="field">
-            <span className="field__label">
-              Treatment history <span className="field__opt">(optional)</span>
-            </span>
+            <span className="field__label">Treatment history</span>
             <textarea
               className="field__input field__textarea"
               value={treatmentHistory}
               onChange={(e) => setTreatmentHistory(e.target.value)}
+              placeholder="Prior therapies, or 'none' if not yet treated."
               rows={2}
+              required
             />
+          </label>
+
+          <label className="field">
+            <span className="field__label">Current medications</span>
+            <input
+              className="field__input"
+              value={medInput}
+              onChange={(e) => setMedInput(e.target.value)}
+              onBlur={addMedication}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addMedication();
+                }
+              }}
+              placeholder="Type each medication, press Enter. Add 'none' if not applicable."
+            />
+            {medications.length > 0 && (
+              <ul className="tag-list">
+                {medications.map((m) => (
+                  <li key={m} className="tag">
+                    {m}
+                    <button
+                      type="button"
+                      className="tag__remove"
+                      onClick={() => setMedications((xs) => xs.filter((x) => x !== m))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </label>
           <label className="field field--narrow">
             <span className="field__label">

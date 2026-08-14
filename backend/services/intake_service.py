@@ -18,11 +18,10 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-import anthropic
+from services import llm_provider
 
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 _SESSION_TTL = timedelta(hours=1)
 _MAX_TURNS = 10
 
@@ -63,7 +62,7 @@ def answer(session_id: str, user_answer: str) -> dict:
     session["turns"].append({"role": "user", "content": user_answer})
     turns_so_far = sum(1 for t in session["turns"] if t["role"] == "user")
 
-    if not _ANTHROPIC_API_KEY:
+    if not llm_provider.is_configured():
         # No LLM available — fall back to a deterministic fixed script.
         return _fallback_next(session, turns_so_far)
 
@@ -106,17 +105,16 @@ def _ask_llm_next(turns: list[dict], turns_so_far: int) -> dict:
         max_turns=_MAX_TURNS,
     )
 
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=900,
+    raw = llm_provider.complete_sync(
+        prompt,
         system=(
             "You are a friendly intake assistant for a clinical trial matching "
-            "service. Respond ONLY with the JSON object specified — no prose."
+            "service. Respond only with the JSON object specified, no prose."
         ),
-        messages=[{"role": "user", "content": prompt}],
+        max_tokens=900,
+        json_only=True,
     )
-    return _parse_json(msg.content[0].text)
+    return llm_provider.parse_json(raw)
 
 
 def _parse_json(raw: str) -> dict:

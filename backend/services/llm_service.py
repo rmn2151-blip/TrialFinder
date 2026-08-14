@@ -1,17 +1,15 @@
 """
-LLM ranking service — takes a patient profile + aggregated Linkup search
-results and returns a structured list of ranked trials with personalized
-reasoning.
+LLM ranking service. Takes a patient profile plus aggregated search results
+and returns a structured list of ranked trials with personalized reasoning.
 
-Uses Claude claude-sonnet-4-6 via the Anthropic SDK with JSON output mode.
+Runs on whichever provider is configured (Gemini by default, Claude as an
+alternative) through services/llm_provider.py.
 """
 
 import json
 import logging
 import os
 from pathlib import Path
-
-import anthropic
 
 from models.patient import PatientProfile
 from models.trial import (
@@ -21,11 +19,13 @@ from models.trial import (
     RankedTrial,
     ScoreComponent,
 )
+from services import llm_provider
 
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-_MOCK_MODE = os.getenv("MOCK_LINKUP", "false").lower() == "true"
+_MOCK_MODE = (
+    os.getenv("MOCK_SEARCH", os.getenv("MOCK_LINKUP", "false")).lower() == "true"
+)
 _MAX_TRIALS = int(os.getenv("MAX_TRIALS_RETURNED", "5"))
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "ranker.txt"
@@ -53,41 +53,32 @@ async def rank_and_reason(
 
     Returns a MatchResponse ready to send to the frontend.
     """
-    if not _ANTHROPIC_API_KEY:
+    if not llm_provider.is_configured():
         if _MOCK_MODE:
-            # #region agent log
-            try:
-                import time
-
-                with open(
-                    "/Users/ruhaninagda/Documents/Claude/Projects/TrialFinder/.cursor/debug-1e06ce.log",
-                    "a",
-                ) as f:
-                    f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "1e06ce",
-                                "hypothesisId": "A",
-                                "location": "llm_service.py:rank_and_reason",
-                                "message": "mock match path (no ANTHROPIC key)",
-                                "data": {"mock_mode": True, "condition": patient.condition},
-                                "timestamp": int(time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except OSError:
-                pass
-            # #endregion
-            logger.info("MOCK_LINKUP=true — returning fixture match response")
+            logger.info("Mock mode with no provider key. Returning fixture response.")
             return _load_mock_match(patient)
-        raise ValueError("ANTHROPIC_API_KEY is not set. Add it to your .env file.")
+        raise ValueError(
+            "No LLM provider configured. Set GEMINI_API_KEY (recommended) or "
+            "ANTHROPIC_API_KEY in your .env file."
+        )
 
     prompt = _build_prompt(patient, linkup_data)
 
-    logger.info(f"Calling Claude to rank trials for condition='{patient.condition}'")
+    provider = llm_provider.active_provider()
+    logger.info(
+        "Ranking trials for condition='%s' using %s", patient.condition, provider
+    )
 
-    raw_json = await _call_claude(prompt)
+    raw_json = await llm_provider.complete(
+        prompt,
+        system=(
+            "You are a clinical trial matching specialist. Respond with a "
+            "single valid JSON object and nothing else. No markdown fences, "
+            "no commentary before or after the JSON."
+        ),
+        max_tokens=8000,
+        json_only=True,
+    )
     return _parse_response(raw_json, patient)
 
 
@@ -110,59 +101,37 @@ def _load_mock_match(patient: PatientProfile) -> MatchResponse:
 # ---------------------------------------------------------------------------
 
 
-def _build_prompt(patient: PatientProfile, linkup_data: dict) -> str:
+def _build_prompt(patient: PatientProfile, search_data: dict) -> str:
+    """
+    Fill the ranker template.
+
+    Deliberately uses explicit string replacement rather than str.format().
+    The template contains a literal JSON example, and format() treats every
+    '{' in that example as a placeholder, which raised
+    KeyError: '\\n  "trials"' and made every real search fail. Replacement
+    only touches the exact tokens we define, so the JSON example is safe and
+    editing the prompt cannot break the code.
+    """
     template = _PROMPT_PATH.read_text(encoding="utf-8")
 
-    patient_json = json.dumps(
-        patient.model_dump(exclude_none=True), indent=2
-    )
+    patient_json = json.dumps(patient.model_dump(exclude_none=True), indent=2)
 
-    return template.format(
-        patient_json=patient_json,
-        trial_listings=linkup_data.get("trial_listings") or "No trial listing data found.",
-        recent_results=linkup_data.get("recent_results") or "No recent results data found.",
-        mechanism_coverage=linkup_data.get("mechanism_coverage") or "No mechanism coverage found.",
-        max_trials=_MAX_TRIALS,
-    )
+    replacements = {
+        "{patient_json}": patient_json,
+        "{trial_listings}": search_data.get("trial_listings")
+        or "No trial listing data found.",
+        "{recent_results}": search_data.get("recent_results")
+        or "No recent results data available.",
+        "{mechanism_coverage}": search_data.get("mechanism_coverage")
+        or "No mechanism coverage available.",
+        "{max_trials}": str(_MAX_TRIALS),
+    }
 
+    prompt = template
+    for token, value in replacements.items():
+        prompt = prompt.replace(token, value)
 
-# ---------------------------------------------------------------------------
-# Claude call
-# ---------------------------------------------------------------------------
-
-
-async def _call_claude(prompt: str) -> str:
-    """
-    Calls Claude synchronously (Anthropic SDK is sync) and returns the
-    raw response text. Runs in a thread pool to avoid blocking the event loop.
-    """
-    import asyncio
-
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _sync_call_claude, prompt)
-
-
-def _sync_call_claude(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-        # Ask Claude to think step by step before producing JSON
-        system=(
-            "You are a clinical trial matching specialist. "
-            "You always respond with valid JSON only — no markdown fences, "
-            "no preamble, no explanation outside the JSON structure."
-        ),
-    )
-
-    return message.content[0].text
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +192,8 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
                 washout_weeks=_parse_int(t.get("washout_weeks"), lo=0, hi=52),
                 biomarker_match=_parse_str(t.get("biomarker_match")),
                 matched_biomarkers=_parse_str_list(t.get("matched_biomarkers")),
+                insurance_coverage=_parse_str_list(t.get("insurance_coverage"))[:6],
+                insurance_note=_parse_str(t.get("insurance_note")),
             )
             # Compute the earliest enrollable date if we have both the patient's
             # last treatment date and the trial's washout period.
@@ -233,6 +204,11 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
         except Exception as e:
             logger.warning(f"Skipping malformed trial entry {i}: {e}")
             continue
+
+    # Hard filter — only actively recruiting trials survive. The prompt asks
+    # for this too, but this belt-and-braces check ensures a non-recruiting
+    # trial can never leak through no matter what the LLM returns.
+    trials = [t for t in trials if _is_recruiting(t.status)]
 
     # Sort by fit_score descending in case Claude didn't fully comply
     trials.sort(key=lambda t: t.fit_score, reverse=True)
@@ -335,6 +311,21 @@ def _parse_str_list(raw) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [str(x).strip() for x in raw if str(x).strip()]
+
+
+# Only these statuses are user-actionable — patients can actually enroll.
+# Everything else (Completed, Terminated, Suspended, Withdrawn, Unknown,
+# Not yet recruiting, Active/not recruiting, etc.) is hidden.
+_ACTIVE_STATUSES = {
+    "recruiting",
+    "enrolling by invitation",
+}
+
+
+def _is_recruiting(status) -> bool:
+    if not status:
+        return False
+    return str(status).strip().lower() in _ACTIVE_STATUSES
 
 
 def _compute_earliest_date(washout_weeks, last_treatment_date):

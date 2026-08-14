@@ -7,9 +7,12 @@ Doctor briefing endpoint.
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+from middleware.abuse import block_automated_clients
+from middleware.rate_limit import limiter
 
 from models.patient import PatientProfile
 from models.trial import MatchResponse
@@ -20,19 +23,30 @@ router = APIRouter(prefix="/api/briefing", tags=["briefing"])
 
 
 class BriefingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # PatientProfile runs its own sanitizing validators, so the text that
+    # reaches the PDF renderer is already scrubbed of control characters and
+    # markup. That matters here because reportlab renders a mini-markup
+    # dialect, and unescaped input could otherwise corrupt the document.
     patient: PatientProfile
     match: MatchResponse
 
 
-@router.post("/pdf")
-def briefing_pdf(body: BriefingRequest):
+@router.post("/pdf", dependencies=[Depends(block_automated_clients)])
+@limiter.limit("10/minute;30/hour")
+def briefing_pdf(request: Request, body: BriefingRequest):
     if not body.match.trials:
         raise HTTPException(status_code=400, detail="No trials to brief on.")
+    if len(body.match.trials) > 50:
+        raise HTTPException(status_code=400, detail="Too many trials to brief on.")
     try:
         pdf_bytes = render_briefing_pdf(body.patient, body.match)
-    except Exception as exc:
-        logger.exception("PDF generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Couldn't generate the briefing PDF.")
+    except Exception:
+        logger.exception("briefing.pdf_failed")
+        raise HTTPException(
+            status_code=500, detail="Couldn't generate the briefing PDF."
+        )
 
     filename = "trialfinder-briefing.pdf"
     return Response(

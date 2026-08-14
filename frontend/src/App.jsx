@@ -1,11 +1,14 @@
 import { Routes, Route } from "react-router-dom";
 import Header from "./components/Header.jsx";
+import Footer from "./components/Footer.jsx";
 import Home from "./pages/Home.jsx";
 import Results from "./pages/Results.jsx";
 import Login from "./pages/Login.jsx";
 import Watchlist from "./pages/Watchlist.jsx";
 import WhatIsTrial from "./pages/WhatIsTrial.jsx";
 import WhyParticipate from "./pages/WhyParticipate.jsx";
+import Privacy from "./pages/Privacy.jsx";
+import Terms from "./pages/Terms.jsx";
 
 export default function App() {
   return (
@@ -19,8 +22,11 @@ export default function App() {
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/what-is-a-clinical-trial" element={<WhatIsTrial />} />
           <Route path="/why-participate" element={<WhyParticipate />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
         </Routes>
       </main>
+      <Footer />
     </div>
   );
 }

@@ -125,6 +125,19 @@ class RankedTrial(BaseModel):
         default_factory=list,
         description="Patient biomarkers that satisfy this trial's requirements",
     )
+    insurance_coverage: list[str] = Field(
+        default_factory=list,
+        description="Insurance providers commonly known to cover this trial's "
+        "routine costs (Medicare, Blue Cross, UnitedHealthcare, Aetna, "
+        "Kaiser, etc.). Sponsors typically cover the experimental drug + "
+        "study-only procedures; this list is for the standard-of-care side.",
+    )
+    insurance_note: Optional[str] = Field(
+        default=None,
+        description="One-line plain-language note about who typically pays "
+        "for what, e.g. 'Sponsor covers the drug; routine visits go through "
+        "insurance.'",
+    )
 
 
 class MatchResponse(BaseModel):

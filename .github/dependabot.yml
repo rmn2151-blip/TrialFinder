@@ -1,0 +1,36 @@
+# Automated dependency monitoring.
+# Dependabot opens PRs when a dependency has a security advisory or a new
+# release, so the project does not silently drift onto vulnerable versions.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, security]
+    commit-message:
+      prefix: "deps(python)"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, security]
+    commit-message:
+      prefix: "deps(npm)"
+    groups:
+      # Batch routine dev-tooling bumps into one PR to cut noise; security
+      # advisories still arrive as their own PR.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [dependencies]

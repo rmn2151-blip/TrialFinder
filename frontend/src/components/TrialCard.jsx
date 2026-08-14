@@ -215,6 +215,23 @@ export default function TrialCard({ trial, patient }) {
         )}
       </dl>
 
+      {/* Insurance coverage — often the deciding factor for real patients */}
+      {trial.insurance_coverage && trial.insurance_coverage.length > 0 && (
+        <div className="insurance">
+          <div className="insurance__row">
+            <span className="insurance__label">Commonly covered by:</span>
+            <ul className="insurance__chips">
+              {trial.insurance_coverage.map((p, i) => (
+                <li key={i} className="insurance__chip">{p}</li>
+              ))}
+            </ul>
+          </div>
+          {trial.insurance_note && (
+            <p className="insurance__note">{trial.insurance_note}</p>
+          )}
+        </div>
+      )}
+
       {trial.warning_flags && trial.warning_flags.length > 0 && (
         <ul className="trial-card__flags" aria-label="Things to be aware of">
           {trial.warning_flags.map((flag, i) => (

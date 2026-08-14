@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from db.database import get_db
 from db.models import Account
 from models.profile import ProfileCreate, ProfileOut, ProfileUpdate
-from routers.security import get_current_account
+from routers.security import get_verified_account
 from services import profile_service
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 @router.post("", response_model=ProfileOut, status_code=201)
 def create(
     body: ProfileCreate,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     profile = profile_service.create_profile(db, account.id, body.model_dump())
@@ -38,7 +38,7 @@ def create(
 
 @router.get("", response_model=list[ProfileOut])
 def list_all(
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     return profile_service.list_profiles(db, account.id)
@@ -47,7 +47,7 @@ def list_all(
 @router.get("/{profile_id}", response_model=ProfileOut)
 def get_one(
     profile_id: int,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     profile = profile_service.get_owned_profile(db, account.id, profile_id)
@@ -60,7 +60,7 @@ def get_one(
 def update(
     profile_id: int,
     body: ProfileUpdate,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     profile = profile_service.get_owned_profile(db, account.id, profile_id)
@@ -75,7 +75,7 @@ def update(
 @router.delete("/{profile_id}", status_code=204)
 def delete(
     profile_id: int,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     profile = profile_service.get_owned_profile(db, account.id, profile_id)

@@ -1,16 +1,5 @@
 import { useState } from "react";
 
-const COMMON_CONDITIONS = [
-  "Lung Cancer",
-  "Breast Cancer",
-  "Leukemia",
-  "Crohn's Disease",
-  "Multiple Sclerosis",
-  "Type 2 Diabetes",
-  "Parkinson's Disease",
-  "Rheumatoid Arthritis",
-];
-
 const STEPS = [
   "Condition",
   "Treatments",
@@ -43,17 +32,39 @@ export default function IntakeForm({ onSubmit, initial = null }) {
   const isLastStep = step === STEPS.length - 1;
   const progress = ((step + 1) / STEPS.length) * 100;
 
-  function validateStep() {
-    if (step === 0 && condition.trim().length < 3) {
-      return "Please enter a condition (at least 3 characters).";
+  // Per-step rules, keyed by step index. Used both to gate "Continue" and to
+  // validate the whole form before we submit.
+  function validateAt(stepIndex) {
+    if (stepIndex === 0 && condition.trim().length < 3) {
+      return "Please enter a condition. At least 3 characters.";
     }
-    if (step === 2 && location.trim().length < 2) {
+    if (stepIndex === 1 && treatmentHistory.trim().length < 1) {
+      return "Please list your treatment history. Enter 'none' if you have not been treated yet.";
+    }
+    if (stepIndex === 2 && location.trim().length < 2) {
       return "Please enter a city, state, or ZIP code.";
     }
-    if (step === 2 && age !== "" && (Number(age) < 0 || Number(age) > 120)) {
+    if (stepIndex === 2 && age !== "" && (Number(age) < 0 || Number(age) > 120)) {
       return "Please enter a valid age between 0 and 120.";
     }
+    if (stepIndex === 3 && medications.length < 1) {
+      return "Please add at least one medication. Type 'none' if you take no medications.";
+    }
     return "";
+  }
+
+  function validateStep() {
+    return validateAt(step);
+  }
+
+  // Check every step. Returns { stepIndex, message } for the first failure,
+  // or null when the whole form is valid.
+  function validateAll() {
+    for (let i = 0; i < STEPS.length; i++) {
+      const msg = validateAt(i);
+      if (msg) return { stepIndex: i, message: msg };
+    }
+    return null;
   }
 
   function next() {
@@ -90,20 +101,38 @@ export default function IntakeForm({ onSubmit, initial = null }) {
     }
   }
 
+  // Enter inside a single-line input would otherwise submit the whole form
+  // from any step. Swallow it and advance instead, so the user can only
+  // submit from the final step via the explicit button.
+  function handleFormKeyDown(e) {
+    if (e.key !== "Enter") return;
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "textarea") return; // newlines are fine in textareas
+    if (!isLastStep) {
+      e.preventDefault();
+      next();
+    }
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
-    const msg = validateStep();
-    if (msg) {
-      setError(msg);
+    // Validate every step, not just the one on screen. If an earlier step is
+    // incomplete, jump the user back to it instead of submitting a partial
+    // profile (which produced results unrelated to their input).
+    const failure = validateAll();
+    if (failure) {
+      setStep(failure.stepIndex);
+      setError(failure.message);
       return;
     }
-    // Build payload matching backend PatientProfile. Omit empty optionals.
+    // Build payload matching backend PatientProfile. treatment_history and
+    // medications are required; the rest are optional.
     const payload = {
       condition: condition.trim(),
       location: location.trim(),
+      treatment_history: treatmentHistory.trim(),
       medications,
     };
-    if (treatmentHistory.trim()) payload.treatment_history = treatmentHistory.trim();
     if (age !== "") payload.age = Number(age);
     if (additionalContext.trim())
       payload.additional_context = additionalContext.trim();
@@ -127,7 +156,12 @@ export default function IntakeForm({ onSubmit, initial = null }) {
   }
 
   return (
-    <form className="intake" onSubmit={handleSubmit} noValidate>
+    <form
+      className="intake"
+      onSubmit={handleSubmit}
+      onKeyDown={handleFormKeyDown}
+      noValidate
+    >
       <div className="intake__progress" role="group" aria-label="Form progress">
         <div className="intake__progress-track">
           <div
@@ -171,20 +205,6 @@ export default function IntakeForm({ onSubmit, initial = null }) {
               maxLength={500}
             />
           </label>
-          <div className="chips" role="group" aria-label="Common conditions">
-            {COMMON_CONDITIONS.map((c) => (
-              <button
-                type="button"
-                key={c}
-                className={
-                  "chip" + (condition === c ? " chip--selected" : "")
-                }
-                onClick={() => setCondition(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
         </fieldset>
       )}
 
@@ -195,20 +215,19 @@ export default function IntakeForm({ onSubmit, initial = null }) {
             What treatments have you already tried?
           </legend>
           <label className="field">
-            <span className="field__label">
-              Treatment history <span className="field__opt">(optional)</span>
-            </span>
+            <span className="field__label">Treatment history</span>
             <textarea
               className="field__input field__textarea"
               value={treatmentHistory}
               onChange={(e) => setTreatmentHistory(e.target.value)}
-              placeholder="e.g. carboplatin + paclitaxel, 6 cycles, then a PD-1 inhibitor"
+              placeholder="e.g. carboplatin + paclitaxel, 6 cycles, then a PD-1 inhibitor. Type 'none' if not yet treated."
               rows={5}
               maxLength={1000}
+              required
             />
             <span className="field__hint">
               Listing prior treatments helps us match trials that accept your
-              treatment stage.
+              treatment stage. Enter 'none' if you have not been treated yet.
             </span>
           </label>
         </fieldset>
@@ -253,10 +272,7 @@ export default function IntakeForm({ onSubmit, initial = null }) {
             What medications are you currently taking?
           </legend>
           <label className="field">
-            <span className="field__label">
-              Current medications{" "}
-              <span className="field__opt">(optional)</span>
-            </span>
+            <span className="field__label">Current medications</span>
             <div className="tag-input">
               <input
                 type="text"
@@ -265,12 +281,13 @@ export default function IntakeForm({ onSubmit, initial = null }) {
                 onChange={(e) => setMedInput(e.target.value)}
                 onKeyDown={handleMedKeyDown}
                 onBlur={addMedication}
-                placeholder="Type a medication and press Enter"
+                placeholder="Type a medication and press Enter. Add 'none' if you take no medications."
                 aria-describedby="med-hint"
               />
             </div>
             <span id="med-hint" className="field__hint">
-              We use these to flag possible interactions or exclusion criteria.
+              We use these to flag possible drug interactions or exclusion
+              criteria. Add 'none' if you take no medications.
             </span>
             {medications.length > 0 && (
               <ul className="tag-list" aria-label="Added medications">

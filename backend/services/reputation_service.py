@@ -22,8 +22,7 @@ import re
 import time
 from typing import Optional
 
-import anthropic
-
+from services import llm_provider
 from models.reputation import (
     PressItem,
     Publication,
@@ -34,10 +33,10 @@ from models.reputation import (
 
 logger = logging.getLogger(__name__)
 
-_LINKUP_API_KEY = os.getenv("LINKUP_API_KEY", "")
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-_MOCK_MODE = os.getenv("MOCK_LINKUP", "false").lower() == "true"
-_DEPTH = os.getenv("LINKUP_DEPTH", "standard")
+_MOCK_MODE = (
+    os.getenv("MOCK_SEARCH", os.getenv("MOCK_LINKUP", "false")).lower() == "true"
+)
 
 _CACHE_TTL_SECONDS = 3600  # one hour
 # { key: (timestamp, Reputation dict) }
@@ -77,18 +76,15 @@ async def get_reputation(sponsor: str, pi: Optional[str] = None) -> Reputation:
 
 
 async def _live_reputation(sponsor: str, pi: Optional[str]) -> Reputation:
-    if not _LINKUP_API_KEY:
-        raise ValueError(
-            "LINKUP_API_KEY is not set. Set MOCK_LINKUP=true for dev or add the key."
-        )
+    from services import search_service
 
     query = _build_query(sponsor, pi)
     logger.info("Reputation lookup: %s", query)
 
-    linkup_result = await _linkup_search(query)
+    linkup_result = await search_service.web_search(query)
 
-    if not _ANTHROPIC_API_KEY:
-        # Without the LLM we can still return raw sources as a thin response.
+    if not llm_provider.is_configured():
+        # Without an LLM we can still return raw sources as a thin response.
         return _from_raw_sources(sponsor, pi, linkup_result)
 
     return await _normalize_with_llm(sponsor, pi, linkup_result)
@@ -103,38 +99,8 @@ def _build_query(sponsor: str, pi: Optional[str]) -> str:
     )
 
 
-async def _linkup_search(query: str) -> dict:
-    """Single Linkup sourcedAnswer call, in a thread pool (SDK is sync)."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _sync_linkup_search, query)
-
-
-def _sync_linkup_search(query: str) -> dict:
-    from linkup import LinkupClient
-
-    client = LinkupClient(api_key=_LINKUP_API_KEY)
-    try:
-        response = client.search(
-            query=query, depth=_DEPTH, output_type="sourcedAnswer"
-        )
-    except Exception as exc:
-        logger.warning("Linkup reputation query failed: %s", exc)
-        return {"answer": "", "sources": []}
-
-    sources = []
-    for s in getattr(response, "sources", []) or []:
-        sources.append(
-            {
-                "name": getattr(s, "name", "") or "",
-                "url": getattr(s, "url", "") or "",
-                "snippet": getattr(s, "snippet", "") or "",
-            }
-        )
-    return {"answer": getattr(response, "answer", "") or "", "sources": sources}
-
-
 def _from_raw_sources(sponsor: str, pi: Optional[str], linkup_result: dict) -> Reputation:
-    """Fallback path when no Anthropic key is set — return what Linkup gave us."""
+    """Fallback path when no Anthropic key is set: return the raw search hits."""
     sources = [
         SourceLink(label=s.get("name") or s.get("url"), url=s["url"], snippet=s.get("snippet"))
         for s in linkup_result.get("sources", [])
@@ -159,37 +125,18 @@ async def _normalize_with_llm(
         sources=json.dumps(linkup_result.get("sources", [])[:10], indent=2),
     )
 
-    loop = asyncio.get_event_loop()
-    raw = await loop.run_in_executor(None, _sync_claude_call, prompt)
-
-    parsed = _parse_llm_json(raw)
-    return _build_reputation(sponsor, pi, parsed, linkup_result)
-
-
-def _sync_claude_call(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1500,
+    raw = await llm_provider.complete(
+        prompt,
         system=(
-            "You are a research assistant. Respond with valid JSON only — "
-            "no markdown fences, no prose outside the JSON."
+            "You are a research assistant. Respond with valid JSON only. "
+            "No markdown fences, no prose outside the JSON."
         ),
-        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1500,
+        json_only=True,
     )
-    return message.content[0].text
 
-
-def _parse_llm_json(raw: str) -> dict:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```[a-z]*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```$", "", cleaned)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        logger.warning("Reputation LLM returned invalid JSON: %s", exc)
-        return {}
+    parsed = llm_provider.parse_json(raw)
+    return _build_reputation(sponsor, pi, parsed, linkup_result)
 
 
 def _build_reputation(

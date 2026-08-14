@@ -3,8 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useProfiles } from "../context/ProfileContext.jsx";
 import {
+  getAlertPreferences,
   getWatchlist,
   removeFromWatchlist,
+  setAlertPreferences,
   updateWatchlistStatus,
 } from "../api/client.js";
 
@@ -46,6 +48,29 @@ export default function Watchlist() {
   const [trials, setTrials] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
   const [error, setError] = useState("");
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [savingPrefs, setSavingPrefs] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthed) return;
+    getAlertPreferences()
+      .then((p) => setEmailAlerts(!!p.email_alerts_enabled))
+      .catch(() => {});
+  }, [isAuthed]);
+
+  async function toggleEmailAlerts() {
+    const next = !emailAlerts;
+    setEmailAlerts(next); // optimistic
+    setSavingPrefs(true);
+    try {
+      await setAlertPreferences(next);
+    } catch (err) {
+      setEmailAlerts(!next); // roll back
+      setError(err.message);
+    } finally {
+      setSavingPrefs(false);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!selected) {
@@ -154,6 +179,23 @@ export default function Watchlist() {
           </div>
         </div>
       )}
+
+      <div className="alert-prefs">
+        <label className="alert-prefs__row">
+          <input
+            type="checkbox"
+            checked={emailAlerts}
+            onChange={toggleEmailAlerts}
+            disabled={savingPrefs}
+          />
+          <span>
+            <strong>Email me when a saved trial changes.</strong> We check
+            ClinicalTrials.gov daily and email you if a trial stops recruiting,
+            changes phase, adds sites, or publishes results. Updates always
+            appear in the app regardless of this setting.
+          </span>
+        </label>
+      </div>
 
       {responseStats && (
         <p className="watchlist__stats">

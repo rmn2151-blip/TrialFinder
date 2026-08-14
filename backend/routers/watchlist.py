@@ -12,7 +12,7 @@ guarded by an optional cron token).
 import logging
 import os
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from datetime import datetime
@@ -27,7 +27,7 @@ from models.watchlist import (
     WatchlistOut,
     WatchRequest,
 )
-from routers.security import get_current_account
+from routers.security import get_verified_account
 from services import profile_service, watchlist_service
 
 VALID_ENROLLMENT_STATUSES = {
@@ -51,7 +51,7 @@ router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 @router.post("", response_model=WatchedTrialOut, status_code=201)
 def add_to_watchlist(
     body: WatchRequest,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     # Ensure the target profile belongs to the authenticated account.
@@ -74,7 +74,7 @@ def add_to_watchlist(
 @router.get("", response_model=WatchlistOut)
 def get_watchlist(
     profile_id: int = Query(..., description="Profile whose watchlist to fetch"),
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     profile = profile_service.get_owned_profile(db, account.id, profile_id)
@@ -90,7 +90,7 @@ def get_watchlist(
 @router.delete("/{watch_id}", status_code=204)
 def delete_from_watchlist(
     watch_id: int,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     watch = watchlist_service.get_owned_watch(db, account.id, watch_id)
@@ -105,7 +105,7 @@ def delete_from_watchlist(
 def update_enrollment_status(
     watch_id: int,
     body: StatusUpdateRequest,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_verified_account),
     db: Session = Depends(get_db),
 ):
     """Log the patient's enrollment progress: interested → contacted → … → enrolled."""
@@ -128,15 +128,42 @@ def update_enrollment_status(
 
 @router.post("/check", response_model=CheckSummary)
 def run_watchlist_check(
+    request: Request,
     send_email: bool = Query(True),
     x_cron_token: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
     """
-    Trigger the change-detection sweep across all accounts. If CRON_TOKEN is set
-    in the environment, callers must pass it via the X-Cron-Token header.
+    Trigger the change-detection sweep across all accounts.
+
+    This endpoint touches every account and can send email, so it FAILS CLOSED:
+    without CRON_TOKEN configured it is disabled entirely. Previously an unset
+    token left it wide open, which would let anyone on the internet trigger a
+    mass mailing.
     """
-    expected = os.getenv("CRON_TOKEN")
-    if expected and x_cron_token != expected:
+    import hmac
+
+    expected = os.getenv("CRON_TOKEN", "").strip()
+    ip = request.client.host if request.client else "unknown"
+
+    if not expected:
+        logger.error(
+            "watchlist.check_blocked reason=cron_token_not_configured ip=%s", ip
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "This endpoint is disabled because CRON_TOKEN is not configured. "
+                "Set CRON_TOKEN in the environment to enable scheduled runs."
+            ),
+        )
+
+    # Constant-time comparison so the token cannot be recovered by timing.
+    if not x_cron_token or not hmac.compare_digest(x_cron_token, expected):
+        logger.warning("watchlist.check_denied reason=bad_cron_token ip=%s", ip)
         raise HTTPException(status_code=401, detail="Invalid or missing cron token")
-    return watchlist_service.run_check(db, send_email=send_email)
+
+    logger.info("watchlist.check_started ip=%s send_email=%s", ip, send_email)
+    from services import alert_service
+
+    return alert_service.run_check(db, send_email=send_email)

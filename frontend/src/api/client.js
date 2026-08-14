@@ -11,9 +11,21 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 
 const TOKEN_KEY = "trialfinder_token";
 
+// A cold search does a ClinicalTrials.gov query plus an LLM ranking pass, and
+// can retry across models if one is briefly overloaded. 45s was too tight and
+// surfaced as "Something went wrong" on perfectly good requests.
 const api = axios.create({
   baseURL,
-  timeout: 45000,
+  timeout: 120000,
+  headers: { "Content-Type": "application/json" },
+});
+
+// Auth calls should fail fast if the backend is unreachable. Register is
+// slower because bcrypt hashing takes ~250ms and the LLM/email side may add
+// more, so we give it a bit more headroom than login.
+const authApi = axios.create({
+  baseURL,
+  timeout: 20000,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -51,8 +63,20 @@ export function setToken(token) {
 
 export async function matchTrials(patient) {
   if (USE_MOCK) {
-    await new Promise((r) => setTimeout(r, 2500));
-    return MOCK_MATCH_RESPONSE;
+    // Mock mode returns a fixed sample unrelated to what the user typed.
+    // Make that impossible to mistake for real output: shout in the console
+    // and stamp the response so the UI can label it.
+    console.warn(
+      "[TrialFinder] VITE_USE_MOCK=true - returning SAMPLE DATA. " +
+        "Results will NOT match your input. Set VITE_USE_MOCK=false in " +
+        "frontend/.env.local and restart the dev server for real results."
+    );
+    await new Promise((r) => setTimeout(r, 800));
+    return {
+      ...MOCK_MATCH_RESPONSE,
+      is_mock: true,
+      condition_searched: `SAMPLE DATA (you searched: ${patient?.condition ?? "?"})`,
+    };
   }
   try {
     const { data } = await api.post("/api/match", patient);
@@ -73,7 +97,7 @@ export async function checkHealth() {
 
 export async function register(email, password) {
   try {
-    const { data } = await api.post("/api/auth/register", { email, password });
+    const { data } = await authApi.post("/api/auth/register", { email, password });
     return data; // { access_token, token_type, account }
   } catch (err) {
     throw normalizeError(err);
@@ -82,7 +106,7 @@ export async function register(email, password) {
 
 export async function login(email, password) {
   try {
-    const { data } = await api.post("/api/auth/login", { email, password });
+    const { data } = await authApi.post("/api/auth/login", { email, password });
     return data;
   } catch (err) {
     throw normalizeError(err);
@@ -90,8 +114,51 @@ export async function login(email, password) {
 }
 
 export async function fetchMe() {
-  const { data } = await api.get("/api/auth/me");
-  return data; // { id, email, created_at }
+  // Attach the token by hand since authApi has no interceptor.
+  const token = getToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await authApi.get("/api/auth/me", { headers });
+  return data;
+}
+
+export async function verifyEmail(email, code) {
+  try {
+    const { data } = await authApi.post("/api/auth/verify", { email, code });
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}
+
+export async function resendVerification(email) {
+  try {
+    const { data } = await authApi.post("/api/auth/resend-verification", { email });
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}
+
+export async function forgotPassword(email) {
+  try {
+    const { data } = await authApi.post("/api/auth/forgot-password", { email });
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
+}
+
+export async function resetPassword(email, code, newPassword) {
+  try {
+    const { data } = await authApi.post("/api/auth/reset-password", {
+      email,
+      code,
+      new_password: newPassword,
+    });
+    return data;
+  } catch (err) {
+    throw normalizeError(err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +210,44 @@ export async function getWatchlist(profileId) {
 
 export async function removeFromWatchlist(watchId) {
   await api.delete(`/api/watchlist/${watchId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Trial alerts
+// ---------------------------------------------------------------------------
+
+export async function getAlerts({ unreadOnly = false, limit = 50 } = {}) {
+  const { data } = await api.get("/api/alerts", {
+    params: { unread_only: unreadOnly, limit },
+  });
+  return data; // { alerts: [...], unread_count }
+}
+
+export async function getUnreadAlertCount() {
+  const { data } = await api.get("/api/alerts/unread-count");
+  return data.unread_count;
+}
+
+export async function markAlertRead(alertId) {
+  const { data } = await api.post(`/api/alerts/${alertId}/read`);
+  return data.unread_count;
+}
+
+export async function markAllAlertsRead() {
+  const { data } = await api.post("/api/alerts/read-all");
+  return data.unread_count;
+}
+
+export async function getAlertPreferences() {
+  const { data } = await api.get("/api/alerts/preferences");
+  return data;
+}
+
+export async function setAlertPreferences(emailAlertsEnabled) {
+  const { data } = await api.put("/api/alerts/preferences", {
+    email_alerts_enabled: emailAlertsEnabled,
+  });
+  return data;
 }
 
 export async function updateWatchlistStatus(watchId, status) {
@@ -409,19 +514,32 @@ export async function getReputation(sponsor, pi = null) {
 function normalizeError(err) {
   if (err.code === "ECONNABORTED") {
     return new Error(
-      "The request took too long. The server may be busy — please try again."
+      "The request timed out. Make sure the backend is running (uvicorn main:app --reload) and try again."
     );
   }
   if (err.response) {
+    const status = err.response.status;
     const detail = err.response.data?.detail;
-    if (err.response.status === 429) {
+    if (status === 429) {
       return new Error(
-        "You've made several requests in a short window. Please wait a minute and try again."
+        "Too many requests in a short window. Please wait about a minute and try again."
       );
     }
-    if (err.response.status === 401) {
+    if (status === 401) {
       return new Error(
         typeof detail === "string" ? detail : "Please log in to continue."
+      );
+    }
+    if (status === 409) {
+      return new Error(
+        typeof detail === "string" ? detail : "That account already exists."
+      );
+    }
+    if (status >= 500) {
+      return new Error(
+        typeof detail === "string"
+          ? detail
+          : "The server hit an error. Check the backend terminal for details."
       );
     }
     return new Error(

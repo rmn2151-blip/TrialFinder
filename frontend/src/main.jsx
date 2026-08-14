@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { ProfileProvider } from "./context/ProfileContext.jsx";
+import { MatchProvider } from "./context/MatchContext.jsx";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <AuthProvider>
         <ProfileProvider>
-          <App />
+          <MatchProvider>
+            <App />
+          </MatchProvider>
         </ProfileProvider>
       </AuthProvider>
     </BrowserRouter>

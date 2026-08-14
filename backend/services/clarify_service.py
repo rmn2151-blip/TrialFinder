@@ -11,11 +11,10 @@ import os
 import re
 from typing import Optional
 
-import anthropic
+from services import llm_provider
 
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 MAX_QUESTIONS = 3
 
 
@@ -42,7 +41,7 @@ def clarify(
             ),
         }
 
-    if not _ANTHROPIC_API_KEY:
+    if not llm_provider.is_configured():
         return _fallback_clarify(history)
 
     prompt = _PROMPT.format(
@@ -52,14 +51,13 @@ def clarify(
         remaining=MAX_QUESTIONS - len(history),
     )
 
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    raw = llm_provider.complete_sync(
+        prompt,
+        system="Respond only with the JSON specified. No prose, no markdown fences.",
         max_tokens=600,
-        system="Respond ONLY with the JSON specified — no prose, no markdown fences.",
-        messages=[{"role": "user", "content": prompt}],
+        json_only=True,
     )
-    parsed = _parse_json(msg.content[0].text)
+    parsed = llm_provider.parse_json(raw)
 
     verdict = parsed.get("verdict")
     if verdict not in ("eligible", "ineligible", "ask"):

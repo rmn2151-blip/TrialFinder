@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import TrialCard from "./TrialCard.jsx";
 import ExcludedTrials from "./ExcludedTrials.jsx";
 import { downloadBriefingPdf } from "../api/client.js";
@@ -26,9 +27,16 @@ const SORTS = {
 };
 
 export default function ResultsPage({ data, patient }) {
+  const navigate = useNavigate();
   const [sortKey, setSortKey] = useState("fit");
   const [pdfStatus, setPdfStatus] = useState("idle"); // idle | busy | error
   const [pdfError, setPdfError] = useState("");
+
+  // Send the user back to the intake form with their answers preserved so
+  // they can tweak one field instead of starting over.
+  function editSearch() {
+    navigate("/", { state: { editPatient: patient } });
+  }
 
   async function handleDownloadPdf() {
     setPdfStatus("busy");
@@ -63,14 +71,21 @@ export default function ResultsPage({ data, patient }) {
         </div>
 
         <div className="results__controls">
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={editSearch}
+            title="Go back and change your answers"
+          >
+            ← Edit your search
+          </button>
           {patient && (
             <button
               className="btn btn--primary btn--sm"
               onClick={handleDownloadPdf}
               disabled={pdfStatus === "busy"}
-              title="Generate a 1–2 page PDF for your oncologist"
+              title="Generate a 1-2 page PDF for your oncologist"
             >
-              {pdfStatus === "busy" ? "Generating…" : "📄 Briefing for your doctor"}
+              Briefing for your doctor
             </button>
           )}
           <div className="results__sort">
@@ -92,6 +107,14 @@ export default function ResultsPage({ data, patient }) {
           </div>
         </div>
       </header>
+
+      {data.is_mock && (
+        <p className="mock-banner" role="alert">
+          <strong>Sample data.</strong> These results are a fixed example and
+          do not reflect what you entered. Set <code>VITE_USE_MOCK=false</code>{" "}
+          in <code>frontend/.env.local</code> and restart the dev server.
+        </p>
+      )}
 
       {pdfError && (
         <p className="intake__error" role="alert">{pdfError}</p>

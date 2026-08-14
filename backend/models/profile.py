@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 class ProfileBase(BaseModel):
     label: str = Field(..., min_length=1, max_length=120, description="e.g. 'Mom', 'Myself'")
     condition: str = Field(..., min_length=3, max_length=500)
-    treatment_history: Optional[str] = Field(default=None, max_length=1000)
+    treatment_history: str = Field(..., min_length=1, max_length=1000)
     location: str = Field(..., min_length=2, max_length=200)
     age: Optional[int] = Field(default=None, ge=0, le=120)
-    medications: list[str] = Field(default_factory=list)
+    medications: list[str] = Field(..., min_length=1)
     biomarkers: list[str] = Field(
         default_factory=list,
         description="Genomic / biomarker results e.g. 'KRAS G12C+', 'HER2 amplified'",

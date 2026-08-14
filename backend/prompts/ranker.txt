@@ -42,6 +42,12 @@ Extract and rank the top {max_trials} most relevant RECRUITING clinical trials f
 
 5c. **matched_biomarkers**: A short list of the patient's reported biomarkers that satisfy this trial's eligibility (e.g. ["KRAS G12C+"]). Empty if none apply.
 
+5d. **insurance_coverage**: A short list (up to 6) of major U.S. insurance providers or plan types commonly known to cover routine-care costs for trials of this kind at this class of institution. Include broad categories where appropriate: "Medicare", "Medicaid (state-dependent)", "Blue Cross Blue Shield", "UnitedHealthcare", "Aetna", "Cigna", "Kaiser Permanente", "TRICARE", "VA benefits". Only list providers you can reasonably justify; if the trial site is at a specific system, prefer providers that system contracts with. Return an empty list if you truly don't know.
+
+5e. **insurance_note**: ONE short plain-English sentence about who pays for what for this trial (e.g. "Sponsor covers the experimental drug and study-only procedures; routine visits and labs go through your insurance."). Omit if you can't say safely.
+
+IMPORTANT — insurance disclaimer stance: The Affordable Care Act requires most U.S. insurance plans to cover routine costs of participation in qualifying clinical trials, but coverage details vary by plan. Do NOT tell patients any specific plan definitely covers them — always frame lists as "commonly covers" rather than "will cover".
+
 Biomarker rule: when a patient's reported biomarkers exactly satisfy a trial's required mutation, heavily weight the Eligibility sub-score (toward 95–100) and the overall fit_score. When a required biomarker is missing, the Eligibility sub-score should be ≤ 50 unless the trial doesn't require it.
 
 6. **score_breakdown**: Decompose the fit_score into the axes that drove it. Provide a `label`, a 0–100 `score`, a one-line `reason`, and a `source_url` (the specific listing the judgment came from) for each. Use these axes when applicable:
@@ -56,8 +62,8 @@ Biomarker rule: when a patient's reported biomarkers exactly satisfy a trial's r
 Also report up to 5 trials you considered but DID NOT include, and why. This builds user trust by showing your reasoning. For each, give a `title`, `nct_id` (or null), a plain-language `reason` that references the patient where possible (e.g. "Excluded because you take metformin and this trial excludes diabetics on metformin"), and a `source_url` if known. Common reasons: closed/not recruiting, wrong line of therapy, geographic infeasibility, a specific exclusion criterion the patient triggers.
 
 ## Rules
-- Only include trials with status "Recruiting" or "Enrolling by Invitation" in `trials`
-- If you cannot confirm a trial is currently open, set status to "Status Uncertain" and lower the fit_score
+- **HARD RULE**: Only include trials with status "Recruiting" or "Enrolling by Invitation" in `trials`. NEVER include Completed, Terminated, Suspended, Withdrawn, Active-not-recruiting, or Not-yet-recruiting trials — the backend will drop them and it will look like you produced no results.
+- If a trial's current status is unclear from the search data, list it in `excluded_trials` with reason "Recruitment status unclear — cannot confirm the trial is currently enrolling" rather than including it as a match.
 - Never invent NCT IDs — if you don't have one, leave nct_id as null
 - Never fabricate source URLs — only use links present in the search data
 - If the search data is sparse, return fewer trials rather than hallucinating
@@ -88,6 +94,8 @@ Return ONLY a valid JSON object with this exact structure — no preamble, no ex
       "washout_weeks": 0,
       "biomarker_match": "Matches your KRAS G12C+ status — this trial requires it.",
       "matched_biomarkers": ["KRAS G12C+"],
+      "insurance_coverage": ["Medicare", "Blue Cross Blue Shield", "UnitedHealthcare", "Aetna"],
+      "insurance_note": "Sponsor covers the experimental drug and study-only procedures; routine visits and labs go through your insurance.",
       "score_breakdown": [
         {"label": "Eligibility", "score": 90, "reason": "Prior platinum therapy meets the 'previously treated' requirement", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},
         {"label": "Location", "score": 75, "reason": "Primary site is in New York, near the patient", "source_url": "https://clinicaltrials.gov/study/NCT12345678"},

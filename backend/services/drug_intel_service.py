@@ -17,8 +17,7 @@ import re
 import time
 from typing import Optional
 
-import anthropic
-
+from services import llm_provider
 from models.drug_intel import (
     ConferenceSignal,
     DrugIntel,
@@ -28,10 +27,8 @@ from models.drug_intel import (
 
 logger = logging.getLogger(__name__)
 
-_LINKUP_API_KEY = os.getenv("LINKUP_API_KEY", "")
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 _MOCK_MODE = os.getenv("MOCK_LINKUP", "false").lower() == "true"
-_DEPTH = os.getenv("LINKUP_DEPTH", "standard")
 
 _CACHE_TTL_SECONDS = 3600
 _cache: dict[str, tuple[float, dict]] = {}
@@ -62,20 +59,19 @@ async def get_drug_intel(drug: str) -> DrugIntel:
 
 
 async def _live_intel(drug: str) -> DrugIntel:
-    if not _LINKUP_API_KEY:
-        raise ValueError("LINKUP_API_KEY is not set.")
+    from services import search_service
 
     query = (
-        f'"{drug}" clinical trial phase results efficacy outcomes'
-        f' "ASCO" OR "AHA" OR "ASH" OR "ESMO" OR "AACR" 2024 2025'
-        f' "FDA breakthrough" OR "fast track" OR "orphan drug"'
-        f' side effects safety'
+        f"For the drug {drug}: what have clinical trials found so far? "
+        f"Include phase results and efficacy outcomes, any findings presented "
+        f"at ASCO, AHA, ASH, ESMO or AACR in 2024 or 2025, any FDA "
+        f"breakthrough therapy or fast track designations, and the most "
+        f"commonly reported side effects."
     )
 
-    loop = asyncio.get_event_loop()
-    raw = await loop.run_in_executor(None, _sync_linkup_search, query)
+    raw = await search_service.web_search(query)
 
-    if not _ANTHROPIC_API_KEY:
+    if not llm_provider.is_configured():
         return DrugIntel(
             drug=drug,
             summary=raw.get("answer", "") or None,
@@ -87,53 +83,14 @@ async def _live_intel(drug: str) -> DrugIntel:
         answer=raw.get("answer", "")[:6000],
         sources=json.dumps(raw.get("sources", [])[:10], indent=2),
     )
-    text = await loop.run_in_executor(None, _sync_claude_call, prompt)
-    parsed = _parse_llm_json(text)
-    return _build_intel(drug, parsed, raw)
-
-
-def _sync_linkup_search(query: str) -> dict:
-    from linkup import LinkupClient
-
-    client = LinkupClient(api_key=_LINKUP_API_KEY)
-    try:
-        response = client.search(query=query, depth=_DEPTH, output_type="sourcedAnswer")
-    except Exception as exc:
-        logger.warning("Linkup drug-intel query failed: %s", exc)
-        return {"answer": "", "sources": []}
-
-    sources = []
-    for s in getattr(response, "sources", []) or []:
-        sources.append(
-            {
-                "name": getattr(s, "name", "") or "",
-                "url": getattr(s, "url", "") or "",
-                "snippet": getattr(s, "snippet", "") or "",
-            }
-        )
-    return {"answer": getattr(response, "answer", "") or "", "sources": sources}
-
-
-def _sync_claude_call(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
+    text = await llm_provider.complete(
+        prompt,
+        system="You are a research assistant. Respond with valid JSON only.",
         max_tokens=1500,
-        system="You are a research assistant. Respond with valid JSON only — no markdown fences.",
-        messages=[{"role": "user", "content": prompt}],
+        json_only=True,
     )
-    return message.content[0].text
-
-
-def _parse_llm_json(raw: str) -> dict:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```[a-z]*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```$", "", cleaned)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {}
+    parsed = llm_provider.parse_json(text)
+    return _build_intel(drug, parsed, raw)
 
 
 def _build_intel(drug: str, parsed: dict, raw: dict) -> DrugIntel:

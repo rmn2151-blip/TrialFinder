@@ -36,6 +36,31 @@ class Account(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # Email verification. Stored hashed for the same reason as the reset code.
+    email_verified = Column(Integer, default=0, nullable=False)  # 0/1 int for SQLite
+    verification_code_hash = Column(String(255), nullable=True)
+    verification_sent_at = Column(DateTime, nullable=True)
+
+    # Password reset. The code is stored hashed so a database leak does not
+    # hand an attacker working reset codes.
+    reset_code_hash = Column(String(255), nullable=True)
+    reset_sent_at = Column(DateTime, nullable=True)
+
+    # Brute-force protection. Cleared on any successful login.
+    failed_login_count = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+
+    # Bumped on logout, password reset, and password change. Tokens carry this
+    # value and are rejected when it no longer matches, which gives us real
+    # server-side revocation instead of relying on the client to forget a JWT.
+    token_version = Column(Integer, default=0, nullable=False)
+
+    # Email alert preferences. The token allows one-click unsubscribe from an
+    # email without logging in, which is both expected behaviour and a legal
+    # requirement for bulk email in most jurisdictions.
+    email_alerts_enabled = Column(Integer, default=1, nullable=False)
+    unsubscribe_token = Column(String(64), nullable=True, index=True)
+
     profiles = relationship(
         "PatientProfile",
         back_populates="account",
@@ -107,6 +132,11 @@ class WatchedTrial(Base):
     last_change_at = Column(DateTime, nullable=True)
 
     profile = relationship("PatientProfile", back_populates="watched_trials")
+    alerts = relationship(
+        "TrialAlert",
+        back_populates="watched_trial",
+        cascade="all, delete-orphan",
+    )
 
     def snapshot(self) -> dict:
         """The stored state, in the same shape ctgov_service returns."""
@@ -116,3 +146,60 @@ class WatchedTrial(Base):
             "completion_date": self.last_completion_date,
             "site_count": self.last_site_count,
         }
+
+
+class TrialAlert(Base):
+    """
+    One detected change on a watched trial.
+
+    Persisting alerts rather than only emailing them gives us three things:
+    an in-app feed the user sees on next login, a dedupe key so the same
+    change is never emailed twice, and an audit trail of what we told people.
+    """
+
+    __tablename__ = "trial_alerts"
+    __table_args__ = (
+        # A given change on a given trial is recorded once.
+        UniqueConstraint(
+            "watched_trial_id", "change_hash", name="uq_alert_trial_change"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    watched_trial_id = Column(
+        Integer,
+        ForeignKey("watched_trials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id = Column(
+        Integer,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    nct_id = Column(String(11), nullable=False)
+    trial_title = Column(Text, nullable=False)
+    profile_label = Column(String(120), nullable=True)
+    source_url = Column(Text, nullable=True)
+
+    # "status" | "phase" | "completion_date" | "site_count" | "results"
+    change_type = Column(String(40), nullable=False)
+    # Human-readable, e.g. "Status: Recruiting -> Active, not recruiting"
+    description = Column(Text, nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+
+    # "high" for things that change what a patient should do (recruitment
+    # closing, results published), "normal" for everything else.
+    severity = Column(String(20), default="normal", nullable=False)
+
+    # Deduplication: sha256 of (change_type, old, new).
+    change_hash = Column(String(64), nullable=False, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    emailed_at = Column(DateTime, nullable=True)
+    read_at = Column(DateTime, nullable=True)
+
+    watched_trial = relationship("WatchedTrial", back_populates="alerts")

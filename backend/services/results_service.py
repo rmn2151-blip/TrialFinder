@@ -15,15 +15,16 @@ import os
 import re
 from typing import Optional
 
-import anthropic
 from pydantic import BaseModel, Field
+
+from services import llm_provider
 
 logger = logging.getLogger(__name__)
 
-_LINKUP_API_KEY = os.getenv("LINKUP_API_KEY", "")
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-_MOCK_MODE = os.getenv("MOCK_LINKUP", "false").lower() == "true"
-_DEPTH = os.getenv("LINKUP_DEPTH", "standard")
+_MOCK_MODE = (
+    os.getenv("MOCK_SEARCH", os.getenv("MOCK_LINKUP", "false")).lower() == "true"
+)
 
 
 class TrialResults(BaseModel):
@@ -41,19 +42,18 @@ async def fetch_results_summary(nct_id: str, title: Optional[str] = None) -> Tri
     if _MOCK_MODE:
         return _mock_results(nct_id, title)
 
-    if not _LINKUP_API_KEY:
-        raise ValueError("LINKUP_API_KEY not set.")
+    from services import search_service
 
     label = title or nct_id
     query = (
-        f'"{label}" {nct_id} clinical trial results published primary outcome'
-        f' journal media coverage 2024 2025'
+        f"Has clinical trial {nct_id} ({label}) published results? "
+        f"Summarize the primary outcome, any journal publication, and media "
+        f"coverage from 2024 or 2025."
     )
 
-    loop = asyncio.get_event_loop()
-    raw = await loop.run_in_executor(None, _sync_linkup, query)
+    raw = await search_service.web_search(query)
 
-    if not _ANTHROPIC_API_KEY:
+    if not llm_provider.is_configured():
         return TrialResults(
             nct_id=nct_id,
             summary=raw.get("answer") or None,
@@ -66,53 +66,14 @@ async def fetch_results_summary(nct_id: str, title: Optional[str] = None) -> Tri
         answer=raw.get("answer", "")[:6000],
         sources=json.dumps(raw.get("sources", [])[:10], indent=2),
     )
-    text = await loop.run_in_executor(None, _sync_claude, prompt)
-    parsed = _parse_json(text)
-    return _build_results(nct_id, parsed, raw)
-
-
-def _sync_linkup(query: str) -> dict:
-    from linkup import LinkupClient
-
-    client = LinkupClient(api_key=_LINKUP_API_KEY)
-    try:
-        response = client.search(query=query, depth=_DEPTH, output_type="sourcedAnswer")
-    except Exception as exc:
-        logger.warning("Linkup results query failed: %s", exc)
-        return {"answer": "", "sources": []}
-
-    sources = []
-    for s in getattr(response, "sources", []) or []:
-        sources.append(
-            {
-                "name": getattr(s, "name", "") or "",
-                "url": getattr(s, "url", "") or "",
-                "snippet": getattr(s, "snippet", "") or "",
-            }
-        )
-    return {"answer": getattr(response, "answer", "") or "", "sources": sources}
-
-
-def _sync_claude(prompt: str) -> str:
-    client = anthropic.Anthropic(api_key=_ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    text = await llm_provider.complete(
+        prompt,
+        system="Respond only with the JSON specified. No prose, no markdown fences.",
         max_tokens=900,
-        system="Respond ONLY with the JSON specified — no prose, no markdown fences.",
-        messages=[{"role": "user", "content": prompt}],
+        json_only=True,
     )
-    return msg.content[0].text
-
-
-def _parse_json(raw: str) -> dict:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```[a-z]*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```$", "", cleaned)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {}
+    parsed = llm_provider.parse_json(text)
+    return _build_results(nct_id, parsed, raw)
 
 
 def _build_results(nct_id: str, parsed: dict, raw: dict) -> TrialResults:

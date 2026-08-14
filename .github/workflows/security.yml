@@ -1,0 +1,149 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so newly disclosed CVEs in unchanged dependencies still surface.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs history to scan past commits
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail if an env file was committed
+        run: |
+          set -e
+          # .env.example is fine; a real .env is not.
+          if git ls-files | grep -E '(^|/)\.env(\.|$)' | grep -v '\.env\.example'; then
+            echo "::error::A .env file is tracked by git. Remove it and rotate every key it contained."
+            exit 1
+          fi
+          echo "No tracked .env files."
+
+      - name: Fail if a secret-looking value is hardcoded
+        run: |
+          set -e
+          # Patterns for the providers this project actually uses.
+          if grep -rnE '(sk-ant-[A-Za-z0-9_-]{20,}|re_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{30,})' \
+              --include='*.py' --include='*.js' --include='*.jsx' \
+              --include='*.json' --include='*.yml' --include='*.md' \
+              --exclude-dir=node_modules --exclude-dir=venv --exclude-dir=.git . ; then
+            echo "::error::Hardcoded credential detected. Move it to an environment variable and rotate it."
+            exit 1
+          fi
+          echo "No hardcoded credentials found."
+
+      - name: Fail if a secret is exposed to the browser bundle
+        run: |
+          set -e
+          # Anything named VITE_* is compiled into client JS and is public.
+          if grep -rnE 'VITE_[A-Z_]*(KEY|SECRET|TOKEN|PASSWORD)' \
+              --include='*.js' --include='*.jsx' --include='*.env*' \
+              --exclude-dir=node_modules frontend/ ; then
+            echo "::error::A secret-named VITE_ variable would be shipped to the browser."
+            exit 1
+          fi
+          echo "No secrets exposed to the frontend bundle."
+
+  python-deps:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies for known CVEs
+        run: pip-audit --requirement backend/requirements.txt --strict
+
+  python-sast:
+    name: Python static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Scan for insecure patterns
+        # B101 (assert) is noisy in tests and not a real risk here.
+        run: bandit -r backend -ll --skip B101 --exclude backend/venv,backend/tests
+
+  node-deps:
+    name: Node dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - name: Audit for known vulnerabilities
+        run: npm audit --audit-level=moderate
+
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          language: ${{ matrix.language }}
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+
+  tests:
+    name: Security regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest
+
+      - name: Run security tests
+        working-directory: backend
+        env:
+          ENVIRONMENT: development
+          JWT_SECRET: ci-test-secret-long-enough-for-hs256-rfc7518-compliance
+          MOCK_SEARCH: "true"
+        run: pytest tests/test_security.py tests/test_validators.py -v
