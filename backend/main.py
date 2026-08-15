@@ -12,7 +12,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -137,6 +137,40 @@ if _IS_PROD and _allowed_hosts:
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# Global error handling
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Catch anything a route did not handle.
+
+    Production returns a generic message so we never leak internals. Outside
+    production the real exception is returned, which turns "The server hit an
+    error" into an actionable message without needing the terminal.
+    """
+    from fastapi.responses import JSONResponse
+
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.exception(
+        "unhandled_exception id=%s method=%s path=%s",
+        request_id,
+        request.method,
+        request.url.path,
+    )
+
+    if _IS_PROD:
+        detail = "An internal error occurred."
+    else:
+        detail = f"{type(exc).__name__}: {exc}"[:500]
+
+    return JSONResponse(
+        status_code=500, content={"detail": detail, "request_id": request_id}
+    )
 
 # ---------------------------------------------------------------------------
 # Routers

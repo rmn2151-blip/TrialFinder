@@ -46,12 +46,19 @@ _IS_PROD = os.getenv("ENVIRONMENT", "development").lower() in {
 }
 
 
-def _expose_dev_code(code: str | None) -> str | None:
-    """Return the code only when it is safe to do so."""
+def _expose_dev_code(code: str | None, *, delivered: bool = False) -> str | None:
+    """
+    Return the one-time code to the client only when it is safe AND useful.
+
+    Never in production. Outside production we return it when the email did
+    not actually reach the user, which covers two real cases: no provider
+    configured at all, and a provider that rejected the recipient (Resend
+    sandbox mode only delivers to the account owner's own address). Without
+    this, a failed send leaves the user permanently unable to verify.
+    """
     if _IS_PROD:
         return None
-    if email_service.is_configured():
-        # Email works, so the user will receive it properly. No need to echo.
+    if delivered:
         return None
     return code
 
@@ -80,8 +87,20 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(account)
 
-    email_service.send_verification_code(account.email, code)
-    logger.info("auth.registered account_id=%s ip=%s", account.id, _client_ip(request))
+    delivered = email_service.send_verification_code(account.email, code)
+    logger.info(
+        "auth.registered account_id=%s ip=%s email_delivered=%s",
+        account.id,
+        _client_ip(request),
+        delivered,
+    )
+    if not delivered:
+        logger.warning(
+            "auth.email_not_delivered account_id=%s. The verification code is "
+            "%s. See the error above for the provider's reason.",
+            account.id,
+            code,
+        )
 
     # The token returned here proves who the user is so the client can drive
     # the verification screen. It cannot create profiles or watchlists until
@@ -90,8 +109,8 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
     return TokenResponse(
         access_token=token,
         account=AccountOut.model_validate(account),
-        dev_verification_code=_expose_dev_code(code),
-        verification_status="sent",
+        dev_verification_code=_expose_dev_code(code, delivered=delivered),
+        verification_status="sent" if delivered else "delivery_failed",
     )
 
 
@@ -125,12 +144,20 @@ def resend_verification(
         return VerifyStatus(email=body.email, email_verified=False, message=generic)
 
     db.commit()
-    email_service.send_verification_code(account.email, code)
-    logger.info("auth.verification_resent account_id=%s", account.id)
+    delivered = email_service.send_verification_code(account.email, code)
+    logger.info(
+        "auth.verification_resent account_id=%s delivered=%s", account.id, delivered
+    )
+
+    message = generic
+    dev_code = _expose_dev_code(code, delivered=delivered)
+    if dev_code:
+        message = f"Email delivery failed. Your code is {dev_code}"
+
     return VerifyStatus(
         email=account.email,
         email_verified=bool(account.email_verified),
-        message=generic,
+        message=message,
     )
 
 
@@ -154,13 +181,21 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     if not account.email_verified:
         _, code = auth_service.issue_new_code(db, account.email)
         db.commit()
-        email_service.send_verification_code(account.email, code)
-        logger.info("auth.login_unverified account_id=%s ip=%s", account.id, ip)
+        delivered = email_service.send_verification_code(account.email, code)
+        logger.info(
+            "auth.login_unverified account_id=%s ip=%s delivered=%s",
+            account.id,
+            ip,
+            delivered,
+        )
 
         detail = "Please verify your email first. We just sent you a new code."
-        dev_code = _expose_dev_code(code)
+        dev_code = _expose_dev_code(code, delivered=delivered)
         if dev_code:
-            detail += f" Dev mode code: {dev_code}"
+            detail = (
+                "Please verify your email. We could not deliver the email, so "
+                f"here is your code: {dev_code}"
+            )
         raise HTTPException(status_code=403, detail=detail)
 
     db.commit()
@@ -220,9 +255,13 @@ def forgot_password(
         return SimpleMessage(message=generic)
 
     db.commit()
-    email_service.send_password_reset(account.email, code)
-    logger.info("auth.reset_requested account_id=%s", account.id)
-    return SimpleMessage(message=generic, dev_code=_expose_dev_code(code))
+    delivered = email_service.send_password_reset(account.email, code)
+    logger.info(
+        "auth.reset_requested account_id=%s delivered=%s", account.id, delivered
+    )
+    return SimpleMessage(
+        message=generic, dev_code=_expose_dev_code(code, delivered=delivered)
+    )
 
 
 @router.post("/reset-password", response_model=SimpleMessage)

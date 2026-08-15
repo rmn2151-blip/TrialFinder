@@ -93,10 +93,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
         try:
             response: Response = await call_next(request)
-        except Exception:
+        except Exception as exc:
             duration_ms = (time.perf_counter() - started) * 1000
-            # Log the full traceback server-side, return nothing useful to the
-            # caller. Leaking stack traces is an information disclosure bug.
+            # Always log the full traceback server-side. In production the
+            # client gets nothing useful, because leaking stack traces is an
+            # information disclosure bug. In development we return the actual
+            # error so it is debuggable without digging through the terminal.
             logger.exception(
                 "request.unhandled_error id=%s ip=%s method=%s path=%s duration_ms=%.1f",
                 request_id,
@@ -106,13 +108,20 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 duration_ms,
             )
             _record(ip, "server_error")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "detail": "An internal error occurred.",
-                    "request_id": request_id,
-                },
-            )
+
+            content = {
+                "detail": "An internal error occurred.",
+                "request_id": request_id,
+            }
+            if not _IS_PROD:
+                content["detail"] = (
+                    f"{type(exc).__name__}: {exc}"[:500]
+                    or "An internal error occurred."
+                )
+                content["dev_note"] = (
+                    "This detail is shown because ENVIRONMENT is not production."
+                )
+            return JSONResponse(status_code=500, content=content)
 
         duration_ms = (time.perf_counter() - started) * 1000
         status = response.status_code

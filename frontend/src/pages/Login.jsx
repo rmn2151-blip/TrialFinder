@@ -48,11 +48,17 @@ export default function Login() {
       if (stage === "register") {
         const result = await register(email, password);
         go("verify");
-        setNotice(
-          result?.dev_verification_code
-            ? `Account created. No email service is configured, so here is your code: ${result.dev_verification_code}`
-            : "Account created. Check your email for a 6-digit code."
-        );
+        if (result?.dev_verification_code) {
+          // Delivery failed or no provider is configured. Show the code so
+          // the user is never stuck at the verification screen.
+          setNotice(
+            `Account created, but we could not email this address. ` +
+              `Your verification code is ${result.dev_verification_code} — ` +
+              `enter it below to continue.`
+          );
+        } else {
+          setNotice("Account created. Check your email for a 6-digit code.");
+        }
       } else if (stage === "login") {
         await login(email, password);
         navigate(redirectTo, { replace: true });

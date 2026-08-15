@@ -142,7 +142,11 @@ def _send(to_email: str, subject: str, text: str, html: str) -> bool:
             "Would have emailed %s:\nSubject: %s\n%s",
             to_email, subject, text,
         )
-        return True
+        # Return False, not True. Nothing was actually delivered, and callers
+        # rely on this to decide whether to surface the one-time code in the
+        # response. Claiming success here strands the user on the verify
+        # screen waiting for an email that will never arrive.
+        return False
 
     # Path 1: Resend.
     sender = _from_address()

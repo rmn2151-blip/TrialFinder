@@ -28,4 +28,10 @@ def client_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-limiter = Limiter(key_func=client_key)
+# Rate limiting must be OFF in the test suite: tests legitimately register
+# many accounts in seconds and would otherwise trip the limits and fail for
+# reasons unrelated to what they are testing. Never disable this in a real
+# environment.
+_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
+
+limiter = Limiter(key_func=client_key, enabled=_ENABLED)

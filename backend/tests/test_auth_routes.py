@@ -47,6 +47,25 @@ def _register(client, email="alice@example.com", password="hunter2pass"):
     return r.json()
 
 
+def _register_verified(client, email="alice@example.com", password="hunter2pass"):
+    """
+    Register and complete email verification.
+
+    Profile and watchlist routes require a verified account, so tests that
+    exercise them must verify first. With no email provider configured the
+    code comes back in the response, which is what makes this possible.
+    """
+    data = _register(client, email, password)
+    code = data.get("dev_verification_code")
+    assert code, "expected the verification code in the response for tests"
+    v = client.post("/api/auth/verify", json={"email": email, "code": code})
+    assert v.status_code == 200, v.text
+    # Log in again so the token reflects the now-verified account.
+    login = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert login.status_code == 200, login.text
+    return login.json()
+
+
 # ---------------------------------------------------------------------------
 # Wrong-credential failures: 401, never 200, never leak which field was wrong
 # ---------------------------------------------------------------------------
@@ -64,14 +83,19 @@ def test_login_wrong_password_returns_401(client):
 
 
 def test_login_unknown_email_returns_401(client):
+    """
+    With REVEAL_ACCOUNT_EXISTENCE on (the default, chosen for usability), an
+    unknown email is named explicitly so the user is not left guessing. The
+    status is still 401, and no token is issued.
+    """
     _register(client)
     r = client.post(
         "/api/auth/login",
         json={"email": "ghost@example.com", "password": "anything12"},
     )
     assert r.status_code == 401
-    # Same generic message regardless of whether the email exists.
-    assert "invalid" in r.json()["detail"].lower()
+    assert "no account found" in r.json()["detail"].lower()
+    assert "access_token" not in r.json()
 
 
 def test_login_returns_no_account_data_on_failure(client):
@@ -173,16 +197,25 @@ def test_watchlist_status_update_requires_auth(client):
 
 
 def test_one_user_cannot_read_anothers_profile(client):
-    alice = _register(client, email="alice@example.com", password="hunter2pass")
-    bob = _register(client, email="bob@example.com", password="hunter2pass")
+    alice = _register_verified(client, email="alice@example.com", password="hunter2pass")
+    bob = _register_verified(client, email="bob@example.com", password="hunter2pass")
 
     # Alice creates a profile.
     h_a = {"Authorization": f"Bearer {alice['access_token']}"}
-    p = client.post(
+    p_resp = client.post(
         "/api/profiles",
-        json={"label": "Mom", "condition": "NSCLC", "location": "NY"},
+        json={
+            "label": "Mom",
+            "condition": "NSCLC",
+            "location": "NY",
+            # Both are required fields on the profile model.
+            "treatment_history": "none",
+            "medications": ["none"],
+        },
         headers=h_a,
-    ).json()
+    )
+    assert p_resp.status_code == 201, p_resp.text
+    p = p_resp.json()
 
     # Bob cannot fetch it — must be 404 (don't leak existence).
     h_b = {"Authorization": f"Bearer {bob['access_token']}"}
@@ -195,16 +228,25 @@ def test_one_user_cannot_modify_anothers_watchlist(client, monkeypatch):
     from services import ctgov_service
     monkeypatch.setattr(ctgov_service, "fetch_study", lambda nct_id: None)
 
-    alice = _register(client, email="alice@example.com", password="hunter2pass")
-    bob = _register(client, email="bob@example.com", password="hunter2pass")
+    alice = _register_verified(client, email="alice@example.com", password="hunter2pass")
+    bob = _register_verified(client, email="bob@example.com", password="hunter2pass")
     h_a = {"Authorization": f"Bearer {alice['access_token']}"}
     h_b = {"Authorization": f"Bearer {bob['access_token']}"}
 
-    p = client.post(
+    p_resp = client.post(
         "/api/profiles",
-        json={"label": "Mom", "condition": "NSCLC", "location": "NY"},
+        json={
+            "label": "Mom",
+            "condition": "NSCLC",
+            "location": "NY",
+            # Both are required fields on the profile model.
+            "treatment_history": "none",
+            "medications": ["none"],
+        },
         headers=h_a,
-    ).json()
+    )
+    assert p_resp.status_code == 201, p_resp.text
+    p = p_resp.json()
 
     watch = client.post(
         "/api/watchlist",

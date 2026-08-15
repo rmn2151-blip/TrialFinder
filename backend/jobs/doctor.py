@@ -196,7 +196,10 @@ def check_llm() -> None:
             reply = asyncio.run(
                 llm_provider.complete(
                     'Reply with exactly this JSON and nothing else: {"status":"ok"}',
-                    max_tokens=100,
+                    # Generous budget: reasoning models spend tokens before
+                    # emitting text, and a truncated reply looks like a
+                    # failure when the provider is actually fine.
+                    max_tokens=2000,
                     json_only=True,
                 )
             )
@@ -270,15 +273,53 @@ def check_email(test_recipient: str | None) -> None:
         return
 
     sender = os.getenv("EMAIL_FROM", "")
-    ok(f"Provider configured. Sending as: {sender or '(default)'}")
+    using_smtp = bool(os.getenv("SMTP_HOST")) and not os.getenv("RESEND_API_KEY")
+    provider = "SMTP" if using_smtp else "Resend"
+    ok(f"Provider: {provider}. Sending as: {sender or '(default)'}")
 
     if "resend.dev" in sender:
         warn(
             "You are using Resend's shared onboarding@resend.dev sender. "
-            "Resend only delivers from it to the exact email address you "
-            "signed up to Resend with. Sending to anything else returns 403 "
-            "and the message silently never arrives."
+            "A sandboxed Resend account only delivers to the exact address "
+            "you signed up with; every other recipient gets HTTP 403. Either "
+            "verify a domain at https://resend.com/domains, or switch to SMTP."
         )
+
+    if using_smtp:
+        # Catch bad credentials here rather than at signup time.
+        import smtplib
+        import ssl
+
+        host = os.getenv("SMTP_HOST", "")
+        port = int(os.getenv("SMTP_PORT", "587"))
+        user = os.getenv("SMTP_USER", "")
+        password = os.getenv("SMTP_PASSWORD", "")
+        try:
+            ctx = ssl.create_default_context()
+            if port == 465:
+                server = smtplib.SMTP_SSL(host, port, context=ctx, timeout=20)
+            else:
+                server = smtplib.SMTP(host, port, timeout=20)
+                server.starttls(context=ctx)
+            with server:
+                server.login(user, password)
+            ok(f"SMTP login to {host}:{port} succeeded.")
+        except smtplib.SMTPAuthenticationError:
+            fail(
+                f"SMTP login to {host} was rejected.",
+                "For Gmail you need an App Password, not your normal password. "
+                "Enable 2-Step Verification, then create one at "
+                "https://myaccount.google.com/apppasswords and paste it as "
+                "SMTP_PASSWORD (no spaces).",
+            )
+            return
+        except Exception as exc:
+            fail(
+                f"Could not reach {host}:{port} ({type(exc).__name__}).",
+                "Check SMTP_HOST and SMTP_PORT, and that your network allows "
+                "outbound SMTP.",
+            )
+            return
 
     if not test_recipient:
         print(f"  {DIM}Re-run with --email you@example.com to send a real test.{RESET}")
