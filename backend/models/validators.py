@@ -38,8 +38,12 @@ from typing import Optional
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Zero-width and bidirectional-override characters. These are invisible and
-# have been used to smuggle hidden instructions past human review.
-_INVISIBLE = re.compile(r"[​-‏‪-‮⁠-⁤﻿]")
+# have been used to smuggle hidden instructions past human review. Written as
+# explicit escapes (not literal invisible bytes) so the pattern itself stays
+# reviewable in a diff and doesn't trip source-level bidi-character scanners.
+_INVISIBLE = re.compile(
+    "[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]"
+)
 
 # Patterns that attempt to override the system prompt.
 # Optional filler words ("the", "all", "any") so trivial rewording does not

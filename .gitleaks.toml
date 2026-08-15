@@ -1,0 +1,11 @@
+title = "TrialFinder gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe test fixtures — dummy JWT signing secrets used only in local tests and CI, never real credentials"
+regexes = [
+  '''test-secret-long-enough-for-hs256-rfc7518-compliance''',
+  '''ci-test-secret-long-enough-for-hs256-rfc7518-compliance''',
+]
