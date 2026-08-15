@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import IntakeForm from "../components/IntakeForm.jsx";
 import ConversationalIntake from "../components/ConversationalIntake.jsx";
@@ -17,6 +17,7 @@ export default function Home() {
   const { selected, profiles } = useProfiles();
 
   const hasProfile = !!selected;
+  const intakeRef = useRef(null);
 
   // Coming back from "Edit your search" on the results page: open the form
   // straight away, prefilled with what they searched last time.
@@ -26,9 +27,8 @@ export default function Home() {
       setShowForm(true);
       setUseProfileData(false);
       requestAnimationFrame(() => {
-        document
-          .getElementById("intake")
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        intakeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        intakeRef.current?.focus();
       });
     }
   }, [editPatient]);
@@ -41,9 +41,8 @@ export default function Home() {
     setUseProfileData(prefill);
     setShowForm(true);
     requestAnimationFrame(() => {
-      document
-        .getElementById("intake")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      intakeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      intakeRef.current?.focus();
     });
   }
 
@@ -69,7 +68,10 @@ export default function Home() {
   return (
     <div className="home">
       <section className="hero">
-        <p className="hero__eyebrow">Powered by real-time trial data</p>
+        <p className="hero__brand">
+          <span className="hero__brand-mark" aria-hidden="true">✛</span>
+          TrialFinder
+        </p>
         <h1 className="hero__title">
           Find clinical trials that <em>actually fit you</em>
         </h1>
@@ -124,8 +126,8 @@ export default function Home() {
 
         <ul className="hero__stats" aria-label="At a glance">
           <li>
-            <strong>500,000+</strong>
-            <span>trials searched</span>
+            <strong>64,000+</strong>
+            <span>recruiting trials on ClinicalTrials.gov</span>
           </li>
           <li>
             <strong>Updated daily</strong>
@@ -133,20 +135,25 @@ export default function Home() {
           </li>
           <li>
             <strong>Free</strong>
-            <span>to use</span>
+            <span>no account needed to search</span>
           </li>
         </ul>
-
-        <div className="hero__badges" aria-hidden="true">
-          <span className="trust-badge">Real-time trial data</span>
-          <span className="trust-badge">Plain-English matches</span>
-          <span className="trust-badge">Sources on every result</span>
-        </div>
       </section>
 
       {showForm && (
-        <section id="intake" className="intake-section" aria-label="Patient intake">
-          <div className="mode-toggle" role="tablist" aria-label="Intake style">
+        <section
+          id="intake"
+          ref={intakeRef}
+          tabIndex={-1}
+          className="intake-section"
+          aria-label="Patient intake"
+        >
+          <div
+            className="mode-toggle"
+            role="tablist"
+            aria-label="Intake style"
+            aria-describedby="mode-toggle-hint"
+          >
             <button
               role="tab"
               aria-selected={mode === "form"}
@@ -164,6 +171,10 @@ export default function Home() {
               Chat with our assistant
             </button>
           </div>
+          <p id="mode-toggle-hint" className="mode-toggle__hint">
+            Same questions either way — fill in a short form, or answer them one at a
+            time in a conversation. Pick whichever feels easier right now.
+          </p>
 
           {mode === "form" ? (
             <IntakeForm

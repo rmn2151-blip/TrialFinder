@@ -23,10 +23,40 @@ from services import llm_provider
 logger = logging.getLogger(__name__)
 
 _SESSION_TTL = timedelta(hours=1)
-_MAX_TURNS = 10
 
-# { session_id: {"turns": [...], "created_at": datetime} }
+# Hard ceiling on questions. This is enforced in code, not just requested in
+# the prompt: a model that keeps finding "one more thing" to ask will happily
+# loop forever otherwise.
+_MAX_TURNS = int(os.getenv("INTAKE_MAX_TURNS", "7"))
+
+# Answers that mean "I don't want to answer this".
+#
+# This must match the WHOLE message, not a prefix. "no prior chemo but I had
+# surgery" begins with "no" yet carries real clinical information, and
+# treating it as a refusal would silently discard the patient's answer.
+_DECLINE_PATTERNS = re.compile(
+    r"^\s*(?:"
+    r"no|nope|nah|none|n/?a|skip|pass|idk|i don'?t know|i dont know|"
+    r"not sure|unsure|prefer not(?: to say| to answer)?|rather not|"
+    r"no thanks?|nothing|don'?t have (?:any|one)?|unknown|next|"
+    r"move on|continue|that'?s (?:it|all)|stop asking|no idea|"
+    r"decline|skip this|skip it"
+    r")"
+    r"[\s.!,]*$",  # only trailing punctuation/whitespace may follow
+    re.I,
+)
+
+# { session_id: {"turns": [...], "asked": [...], "declines": int, "created_at": ...} }
 _sessions: dict[str, dict] = {}
+
+
+def _is_decline(text: str) -> bool:
+    return bool(_DECLINE_PATTERNS.match((text or "").strip()))
+
+
+def _normalize_question(q: str) -> str:
+    """Loose key for detecting a repeated question."""
+    return re.sub(r"[^a-z0-9 ]", "", (q or "").lower()).strip()[:60]
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +75,8 @@ def start_session() -> tuple[str, str]:
     )
     _sessions[session_id] = {
         "turns": [{"role": "assistant", "content": first_question}],
+        "asked": [_normalize_question(first_question)],
+        "declines": 0,
         "created_at": datetime.utcnow(),
     }
     return session_id, first_question
@@ -52,8 +84,14 @@ def start_session() -> tuple[str, str]:
 
 def answer(session_id: str, user_answer: str) -> dict:
     """
-    Record the user's answer, then either return the next question or, if the
-    agent has gathered enough info, return the structured profile.
+    Record the user's answer and return either the next question or the
+    finished profile.
+
+    Three guards keep this from becoming an interrogation:
+      1. A hard turn cap enforced here, not merely suggested to the model.
+      2. Declines ("no", "skip", "I don't know") count toward finishing, and
+         two in a row ends the interview immediately.
+      3. A repeated question is rejected and forces completion instead.
     """
     session = _sessions.get(session_id)
     if session is None:
@@ -62,25 +100,42 @@ def answer(session_id: str, user_answer: str) -> dict:
     session["turns"].append({"role": "user", "content": user_answer})
     turns_so_far = sum(1 for t in session["turns"] if t["role"] == "user")
 
+    if _is_decline(user_answer):
+        session["declines"] = session.get("declines", 0) + 1
+    else:
+        session["declines"] = 0
+
+    # Guard 1: the user has said no twice running. Stop asking.
+    if session["declines"] >= 2:
+        logger.info("intake.finishing reason=consecutive_declines session=%s", session_id[:8])
+        return _finish(session, turns_so_far)
+
+    # Guard 2: hard ceiling reached.
+    if turns_so_far >= _MAX_TURNS:
+        logger.info("intake.finishing reason=max_turns session=%s", session_id[:8])
+        return _finish(session, turns_so_far)
+
     if not llm_provider.is_configured():
-        # No LLM available — fall back to a deterministic fixed script.
         return _fallback_next(session, turns_so_far)
 
-    decision = _ask_llm_next(session["turns"], turns_so_far)
+    try:
+        decision = _ask_llm_next(session["turns"], turns_so_far, session["asked"])
+    except Exception as exc:
+        # Never strand the user mid-interview because of a provider hiccup.
+        logger.warning("intake.llm_failed session=%s: %s", session_id[:8], exc)
+        return _finish(session, turns_so_far)
 
     if decision.get("complete") and decision.get("profile"):
-        session["turns"].append({
-            "role": "assistant",
-            "content": "Thanks — I have enough to find your trials.",
-        })
-        return {
-            "complete": True,
-            "question": None,
-            "profile": _validate_profile(decision["profile"]),
-            "turns_so_far": turns_so_far,
-        }
+        return _finish(session, turns_so_far, profile=decision["profile"])
 
-    next_q = decision.get("next_question") or "Could you tell me a little more about your situation?"
+    next_q = (decision.get("next_question") or "").strip()
+
+    # Guard 3: the model is repeating itself, or produced nothing usable.
+    if not next_q or _normalize_question(next_q) in session["asked"]:
+        logger.info("intake.finishing reason=repeat_question session=%s", session_id[:8])
+        return _finish(session, turns_so_far)
+
+    session["asked"].append(_normalize_question(next_q))
     session["turns"].append({"role": "assistant", "content": next_q})
     return {
         "complete": False,
@@ -90,12 +145,98 @@ def answer(session_id: str, user_answer: str) -> dict:
     }
 
 
+def _finish(session: dict, turns_so_far: int, profile: Optional[dict] = None) -> dict:
+    """
+    End the interview and hand back the best profile we can assemble.
+
+    When the model did not supply one (because we stopped it early), we build
+    a profile from the transcript instead of failing. Getting the user to
+    results with partial information beats trapping them in questions.
+    """
+    if profile is None:
+        profile = _profile_from_transcript(session)
+
+    session["turns"].append(
+        {"role": "assistant", "content": "Thanks, that is enough to search."}
+    )
+    return {
+        "complete": True,
+        "question": None,
+        "profile": _validate_profile(profile),
+        "turns_so_far": turns_so_far,
+    }
+
+
+def _profile_from_transcript(session: dict) -> dict:
+    """
+    Best-effort extraction when we cut the interview short.
+
+    The first user answer is always the condition (the opening question asks
+    for it). After that we ask the model once for a structured summary, and
+    fall back to a minimal profile if that fails.
+    """
+    user_answers = [t["content"] for t in session["turns"] if t["role"] == "user"]
+    fallback = {
+        "condition": user_answers[0] if user_answers else "",
+        "location": "United States",
+        "treatment_history": "none",
+        "medications": ["none"],
+    }
+
+    if not llm_provider.is_configured() or not user_answers:
+        return fallback
+
+    transcript = "\n".join(
+        f"{t['role'].upper()}: {t['content']}" for t in session["turns"]
+    )
+    try:
+        raw = llm_provider.complete_sync(
+            _EXTRACT_PROMPT.format(transcript=transcript),
+            system="Respond with JSON only.",
+            max_tokens=800,
+            json_only=True,
+        )
+        parsed = llm_provider.parse_json(raw)
+        if parsed.get("condition"):
+            # Fill required fields the user never got asked about.
+            parsed.setdefault("location", "United States")
+            parsed.setdefault("treatment_history", "none")
+            if not parsed.get("medications"):
+                parsed["medications"] = ["none"]
+            return parsed
+    except Exception as exc:
+        logger.warning("intake.extract_failed: %s", exc)
+
+    return fallback
+
+
+_EXTRACT_PROMPT = """\
+Extract a patient profile from this intake conversation. The user may have
+declined some questions; do not invent answers for those.
+
+{transcript}
+
+Return JSON only:
+{{
+  "condition": "the condition or diagnosis they named",
+  "location": "city/state if given, otherwise 'United States'",
+  "treatment_history": "what they have tried, or 'none'",
+  "medications": ["current medications, or 'none'"],
+  "biomarkers": ["only if explicitly mentioned"],
+  "age": 0
+}}
+Omit age and biomarkers entirely if they were not provided.
+"""
+
+
 # ---------------------------------------------------------------------------
 # LLM call
 # ---------------------------------------------------------------------------
 
 
-def _ask_llm_next(turns: list[dict], turns_so_far: int) -> dict:
+def _ask_llm_next(
+    turns: list[dict], turns_so_far: int, asked: list[str] | None = None
+) -> dict:
     transcript = "\n".join(
         f"{t['role'].upper()}: {t['content']}" for t in turns
     )
@@ -103,15 +244,21 @@ def _ask_llm_next(turns: list[dict], turns_so_far: int) -> dict:
         transcript=transcript,
         turns_so_far=turns_so_far,
         max_turns=_MAX_TURNS,
+        remaining=max(0, _MAX_TURNS - turns_so_far),
+        already_asked="\n".join(f"- {q}" for q in (asked or [])) or "(none)",
     )
 
     raw = llm_provider.complete_sync(
         prompt,
         system=(
             "You are a friendly intake assistant for a clinical trial matching "
-            "service. Respond only with the JSON object specified, no prose."
+            "service. Respond only with the JSON object specified, no prose. "
+            "Be brief and finish the interview early rather than late."
         ),
-        max_tokens=900,
+        # A next question is one sentence and the final profile is a small
+        # object, so a tight budget keeps each turn fast. Reasoning models
+        # spend tokens before emitting, hence not going lower than this.
+        max_tokens=1200,
         json_only=True,
     )
     return llm_provider.parse_json(raw)
@@ -136,19 +283,36 @@ information to build a useful PatientProfile, OR ask ONE next question.
 Transcript:
 {transcript}
 
+Questions you have ALREADY asked. Never ask any of these again, in any
+rewording:
+{already_asked}
+
 Constraints:
-- You have asked the user {turns_so_far} of a maximum of {max_turns} questions.
-- ALWAYS ask ONE question at a time. Keep it short and plain-language.
-- Tailor what you ask next to what's already been said. For a cancer patient,
-  cover staging, treatment history, biomarkers (KRAS, EGFR, HER2, BRCA, MSI, PD-L1),
-  location, age, medications. For other conditions, adapt accordingly (e.g. for
-  diabetes: type, A1c, current meds, prior trials of newer drugs).
-- Required fields before completing: condition, location. Highly recommended:
-  treatment_history (if any prior treatment), biomarkers (if oncology), age,
-  medications, last_treatment_date (YYYY-MM-DD if relevant).
-- If a field is unknown, that's fine — leave it out of the profile.
-- When you have enough to be genuinely useful (at minimum condition + location),
-  set complete=true and produce the profile.
+- You have asked {turns_so_far} of a maximum of {max_turns} questions.
+  You have {remaining} left. Finish before running out.
+- Ask ONE short, plain-language question at a time.
+- NEVER repeat a question already listed above, and never ask for information
+  the user has already given anywhere in the transcript.
+
+Handling refusals, which matters more than gathering every detail:
+- If the user answers "no", "none", "skip", "I don't know", "not sure", or
+  anything similar, that topic is CLOSED. Record it as unknown and move to a
+  different topic. Do not rephrase and try again.
+- If the user declines twice, or asks you to stop or move on, set
+  complete=true immediately with whatever you have.
+- A shorter interview that returns results beats a thorough one the user
+  abandons. When in doubt, finish.
+
+What to gather, in priority order:
+1. condition (required)
+2. location (required; "United States" is acceptable if they won't say)
+3. treatment_history, or "none"
+4. medications, or ["none"]
+5. Only if clearly relevant and turns remain: biomarkers for oncology
+   (KRAS, EGFR, HER2, BRCA, MSI, PD-L1), age, last_treatment_date
+
+Set complete=true as soon as you have items 1 and 2 plus a reasonable attempt
+at 3 and 4. Do not keep asking for optional detail.
 
 Output ONLY this JSON shape — no prose, no markdown fences:
 {{

@@ -131,9 +131,6 @@ p {
 }
 
 /* ---------- Layout / header ---------- */
-.app {
-  min-height: 100vh;
-}
 .site-header {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
@@ -142,13 +139,16 @@ p {
   z-index: 20;
 }
 .site-header__inner {
-  max-width: var(--maxw);
+  /* Wider than --maxw on purpose: once authenticated, this row also carries
+     the profile select, watchlist link, and alerts bell alongside nav and
+     account controls, and that doesn't fit the reading-width column. */
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 0.6rem var(--pad-x);
+  padding: 0.9rem var(--pad-x);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.9rem;
+  gap: 1.4rem;
   /* Single row on desktop. The wrap only kicks in under the 720px
      breakpoint below, where stacking is actually desirable. */
   flex-wrap: nowrap;
@@ -156,14 +156,14 @@ p {
 .site-header__left {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
+  gap: 1.3rem;
   min-width: 0;
   flex-shrink: 1;
 }
 .site-header__right {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.9rem;
   margin-left: auto;
   min-width: 0;
   flex-shrink: 1;
@@ -173,8 +173,8 @@ p {
 .account-menu {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding-left: 0.6rem;
+  gap: 0.6rem;
+  padding-left: 0.9rem;
   border-left: 1px solid var(--line);
   min-width: 0;
 }
@@ -221,17 +221,35 @@ main {
 }
 
 /* ---------- Home / hero ---------- */
+/* Before the intake form opens, the page is short: center the hero in the
+   visible viewport instead of letting it sit near the top with a large gap
+   below. Once the form opens and content grows past viewport height, this
+   has no effect — flex only centers content that's shorter than its box. */
+.home {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Accounts for the header (~3.5rem) plus main's own top/bottom padding
+     (1rem + 2.5rem) so the centered content doesn't overflow past 100vh
+     and force a scrollbar. */
+  min-height: calc(100vh - 7rem);
+}
 .hero {
   text-align: center;
   padding: 1.4rem 0 0.5rem;
 }
-.hero__eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.78rem;
-  font-weight: 700;
+.hero__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: clamp(2.2rem, 7vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--brand);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+.hero__brand-mark {
+  font-size: 0.85em;
 }
 .hero__title {
   font-size: clamp(1.7rem, 4.5vw, 2.5rem);
@@ -266,23 +284,8 @@ main {
   font-weight: 800;
 }
 .hero__stats span {
-  color: var(--ink-faint);
-  font-size: 0.82rem;
-}
-.hero__badges {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.3rem;
-}
-.trust-badge {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.35rem 0.85rem;
-  font-size: 0.82rem;
   color: var(--ink-soft);
+  font-size: 0.82rem;
 }
 .home__disclaimer {
   max-width: 38rem;
@@ -314,9 +317,11 @@ main {
 }
 .intake__progress-fill {
   height: 100%;
+  width: 100%;
   background: var(--brand);
   border-radius: 999px;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .intake__steps {
   list-style: none;
@@ -344,6 +349,7 @@ main {
   place-items: center;
   font-weight: 700;
   font-size: 0.8rem;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 .intake__step.is-active {
   color: var(--ink);
@@ -367,6 +373,35 @@ main {
   border: none;
   margin: 0;
   padding: 0;
+}
+/* The wizard's one authored motion: each step slides in from the direction
+   travelled (Continue -> from the right, Back -> from the left), so moving
+   through the form reads as a path forward rather than a page swap. */
+.intake__step-panel {
+  animation: intake-step-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.intake__step-panel.is-back {
+  animation-name: intake-step-in-back;
+}
+@keyframes intake-step-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes intake-step-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .intake__legend {
   font-size: 1.25rem;
@@ -496,7 +531,14 @@ main {
 }
 
 /* ---------- Loading ---------- */
+/* Fills the screen (minus header) so the footer sits below the fold during
+   loading instead of appearing right under a short block of content. */
 .loading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 7rem);
   text-align: center;
   padding: 4rem 1rem;
 }
@@ -991,12 +1033,6 @@ main {
   .intake {
     padding: 0.9rem;
   }
-  .hero__stats {
-    gap: 0.6rem 1.3rem;
-  }
-  .hero__stats strong {
-    font-size: 1.05rem;
-  }
   .fit__label {
     display: none;
   }
@@ -1023,18 +1059,14 @@ main {
 }
 
 /* ---------- Header nav / auth / profile switcher ---------- */
-.site-header__inner {
-  justify-content: space-between;
-  align-items: center;
-}
 .site-nav {
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .site-nav__link {
-  color: var(--ink-soft);
+  color: var(--ink);
   text-decoration: none;
   font-weight: 600;
   font-size: 0.9rem;
@@ -1441,7 +1473,7 @@ main {
   background: var(--gray-tint);
   border-radius: 999px;
   padding: 0.25rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.4rem;
 }
 .mode-toggle__btn {
   font: inherit;
@@ -1458,6 +1490,12 @@ main {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow);
+}
+.mode-toggle__hint {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  margin: 0 0 1.1rem;
+  max-width: 34rem;
 }
 
 /* ---------- Conversational intake ---------- */
@@ -1482,6 +1520,19 @@ main {
   color: var(--ink-faint);
   font-size: 0.9rem;
   margin-top: 0.2rem;
+}
+.chat-intake__progress {
+  height: 4px;
+  background: var(--gray-tint);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.7rem;
+}
+.chat-intake__progress-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 999px;
+  transition: width 0.35s ease;
 }
 .chat-intake__scroll {
   flex: 1;
@@ -2024,14 +2075,9 @@ main {
 }
 
 /* ---------- Footer ---------- */
-.app {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-.app > main {
-  flex: 1;
-}
+/* Deliberately no flex/min-height push here: the footer follows content in
+   normal flow and should not be glued to the viewport bottom on short pages
+   (e.g. the loading state) — only reachable by actually scrolling to it. */
 .site-footer {
   background: var(--surface);
   border-top: 1px solid var(--line);

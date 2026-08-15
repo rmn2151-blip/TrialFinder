@@ -10,6 +10,9 @@ const STEPS = [
 
 export default function IntakeForm({ onSubmit, initial = null }) {
   const [step, setStep] = useState(0);
+  // Which way the wizard just moved, so the step transition can slide in
+  // from the direction that matches Continue vs Back.
+  const [direction, setDirection] = useState(1);
 
   const [condition, setCondition] = useState(initial?.condition || "");
   const [treatmentHistory, setTreatmentHistory] = useState(
@@ -74,11 +77,13 @@ export default function IntakeForm({ onSubmit, initial = null }) {
       return;
     }
     setError("");
+    setDirection(1);
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   }
 
   function back() {
     setError("");
+    setDirection(-1);
     setStep((s) => Math.max(s - 1, 0));
   }
 
@@ -166,7 +171,7 @@ export default function IntakeForm({ onSubmit, initial = null }) {
         <div className="intake__progress-track">
           <div
             className="intake__progress-fill"
-            style={{ width: `${progress}%` }}
+            style={{ transform: `scaleX(${progress / 100})` }}
           />
         </div>
         <ol className="intake__steps">
@@ -187,6 +192,10 @@ export default function IntakeForm({ onSubmit, initial = null }) {
         </ol>
       </div>
 
+      <div
+        className={"intake__step-panel" + (direction === -1 ? " is-back" : "")}
+        key={step}
+      >
       {/* Step 1 — Condition */}
       {step === 0 && (
         <fieldset className="intake__panel">
@@ -204,6 +213,10 @@ export default function IntakeForm({ onSubmit, initial = null }) {
               autoFocus
               maxLength={500}
             />
+            <span className="field__hint">
+              Sent over an encrypted connection and never shared with advertisers,
+              insurers, or employers.
+            </span>
           </label>
         </fieldset>
       )}
@@ -385,6 +398,7 @@ export default function IntakeForm({ onSubmit, initial = null }) {
           </label>
         </fieldset>
       )}
+      </div>
 
       {error && (
         <p className="intake__error" role="alert">

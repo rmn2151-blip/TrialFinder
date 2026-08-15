@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 const MESSAGES = [
-  "Searching 500,000+ clinical trials…",
+  "Searching recruiting trials on ClinicalTrials.gov…",
   "Reading recent trial results…",
   "Analyzing eligibility criteria…",
   "Generating personalized matches…",
