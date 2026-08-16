@@ -14,7 +14,6 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -123,11 +122,31 @@ app.add_middleware(
 app.add_middleware(SecurityMiddleware)
 
 # Reject requests with a spoofed Host header in production.
+#
+# The platform's own healthcheck probes the container directly over the
+# internal network, so its Host header is an internal name or IP rather than
+# the public domain. If we only trust the public domain, every probe is
+# rejected with 400 and the deploy is marked unhealthy even though the app is
+# running perfectly. So we always allow the hosts the platform uses for
+# internal traffic alongside whatever the operator configured.
 _allowed_hosts = [
-    h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()
+    h.strip().replace("https://", "").replace("http://", "").rstrip("/")
+    for h in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if h.strip()
 ]
+
+# Host validation is handled inside SecurityMiddleware rather than by
+# Starlette's TrustedHostMiddleware. Two reasons: the health endpoint has to
+# stay reachable for probes that arrive with an internal hostname or a raw
+# IP as the Host header, and Starlette only supports leading wildcards
+# ("*.example.com"), which cannot express an internal IP range.
 if _IS_PROD and _allowed_hosts:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+    logger.info("Host header allowlist: %s (+ platform internal)", _allowed_hosts)
+elif _IS_PROD:
+    logger.info(
+        "ALLOWED_HOSTS not set, so Host header validation is off. Set it to "
+        "your API domain to enable it."
+    )
 
 
 # ---------------------------------------------------------------------------
