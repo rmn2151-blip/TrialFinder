@@ -193,13 +193,64 @@ app.include_router(alerts_router)
 # ---------------------------------------------------------------------------
 
 
+# Set during startup so /api/health can report why the app is degraded
+# instead of the container dying silently and the platform showing only
+# "no deployment available".
+STARTUP_STATE: dict = {"database": "unknown", "errors": []}
+
+
 @app.on_event("startup")
 async def startup():
-    init_db()  # create watchlist tables if they don't exist
-    mock_mode = (
-        os.getenv("MOCK_SEARCH", os.getenv("MOCK_LINKUP", "false")).lower() == "true"
-    )
-    logger.info("TrialFinder API started. MOCK_SEARCH=%s", mock_mode)
-    logger.info("Trial data source: ClinicalTrials.gov API (free, no key needed)")
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        logger.warning("ANTHROPIC_API_KEY not set")
+    """
+    Boot sequence, ordered so the log pinpoints any failure.
+
+    Nothing here is allowed to crash the process. A container that exits
+    during startup gives you a 404 page and no explanation; one that stays
+    up and reports its own problems through /api/health is debuggable.
+    """
+    logger.info("=" * 60)
+    logger.info("TrialFinder API starting")
+    logger.info("  ENVIRONMENT   = %s", os.getenv("ENVIRONMENT", "development"))
+    logger.info("  PORT          = %s", os.getenv("PORT", "(not set)"))
+    logger.info("  LLM_PROVIDER  = %s", os.getenv("LLM_PROVIDER", "gemini"))
+    logger.info("  MOCK_SEARCH   = %s", os.getenv("MOCK_SEARCH", "false"))
+
+    # Report which required settings are present, without printing values.
+    for name in ("JWT_SECRET", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL"):
+        value = os.getenv(name, "")
+        logger.info("  %-13s = %s", name, "set" if value else "NOT SET")
+
+    if _IS_PROD and not os.getenv("JWT_SECRET", "").strip():
+        msg = (
+            "JWT_SECRET is not set but ENVIRONMENT=production. Authentication "
+            "will fail. Set JWT_SECRET in the platform's variables."
+        )
+        logger.error(msg)
+        STARTUP_STATE["errors"].append(msg)
+
+    if _IS_PROD and not os.getenv("FRONTEND_URL", "").strip():
+        logger.warning(
+            "FRONTEND_URL is not set in production. Browser requests from your "
+            "frontend will be blocked by CORS until you set it."
+        )
+
+    # Database. A failure here used to kill the container before it bound a
+    # port, which surfaces as Railway's 'train has not arrived' 404.
+    try:
+        init_db()
+        STARTUP_STATE["database"] = "connected"
+        logger.info("  database      = connected, tables ready")
+    except Exception as exc:
+        STARTUP_STATE["database"] = "failed"
+        detail = f"{type(exc).__name__}: {exc}"[:300]
+        STARTUP_STATE["errors"].append(f"Database init failed. {detail}")
+        logger.error("  database      = FAILED. %s", detail)
+        logger.error(
+            "    If you just added Postgres, confirm DATABASE_URL is set on "
+            "THIS service (Variables tab) and that the database finished "
+            "provisioning, then redeploy."
+        )
+
+    logger.info("Trial data: ClinicalTrials.gov API (free, no key required)")
+    logger.info("Startup complete. Health: /api/health")
+    logger.info("=" * 60)

@@ -53,8 +53,28 @@ def _optional_account_id(
 
 @router.get("/api/health")
 async def health_check():
-    """Liveness check. No auth, no cost, no user data."""
-    return {"status": "ok", "service": "TrialFinder"}
+    """
+    Liveness check. No auth, no cost, no user data.
+
+    Deliberately returns 200 even when a subsystem is degraded, so the
+    platform healthcheck passes and the domain stays reachable. The body
+    reports what is actually wrong, which beats a 404 with no explanation.
+    """
+    try:
+        import main
+
+        state = getattr(main, "STARTUP_STATE", {})
+    except Exception:
+        state = {}
+
+    body = {"status": "ok", "service": "TrialFinder"}
+    if state:
+        body["database"] = state.get("database", "unknown")
+        errors = state.get("errors") or []
+        if errors:
+            body["status"] = "degraded"
+            body["errors"] = errors
+    return body
 
 
 @router.post(
