@@ -103,6 +103,12 @@ class RankedTrial(BaseModel):
         default_factory=list,
         description="Sources backing this trial's data, for user verification",
     )
+    availability: str = Field(
+        default="unknown",
+        description="What the status means for the patient: 'open' (enrolling "
+        "now), 'opening_soon' (not yet recruiting, worth saving for an alert), "
+        "or 'closed' (not currently enrolling).",
+    )
     washout_weeks: Optional[int] = Field(
         default=None,
         ge=0,
@@ -137,6 +143,22 @@ class RankedTrial(BaseModel):
         description="One-line plain-language note about who typically pays "
         "for what, e.g. 'Sponsor covers the drug; routine visits go through "
         "insurance.'",
+    )
+    availability: str = Field(
+        default="open",
+        description=(
+            "How the patient can act on this trial right now. "
+            "'open': recruiting or enrolling by invitation, contactable today. "
+            "'upcoming': not yet recruiting, worth saving so we can alert them "
+            "the day it opens. "
+            "'closing': active but no longer enrolling, worth saving to be "
+            "alerted when results are published."
+        ),
+    )
+    availability_note: Optional[str] = Field(
+        default=None,
+        description="Short plain-language explanation of the availability "
+        "state, e.g. 'Expected to begin enrolling in March 2027.'",
     )
 
 

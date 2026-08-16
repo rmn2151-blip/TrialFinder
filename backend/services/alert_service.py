@@ -46,6 +46,14 @@ _CLOSING_STATUSES = {
     "withdrawn",
 }
 
+# The status a saved trial reaches when it becomes joinable. Someone who
+# saved a not-yet-recruiting trial did so precisely to hear about this, so it
+# is the highest-value alert the system sends.
+_OPENING_STATUSES = {
+    "recruiting",
+    "enrolling by invitation",
+}
+
 
 def _hash_change(change_type: str, old, new) -> str:
     raw = f"{change_type}|{old}|{new}"
@@ -94,12 +102,26 @@ def diff_snapshots(old: dict, new: dict) -> list[dict]:
             severity = "normal"
         else:
             desc = f"{label}: {old_val} to {new_val}"
-            # Recruitment closing is the one change a patient must act on.
-            severity = (
-                "high"
-                if field == "status" and str(new_val).lower() in _CLOSING_STATUSES
-                else ("high" if is_high else "normal")
-            )
+            severity = "high" if is_high else "normal"
+
+            if field == "status":
+                new_lower = str(new_val).strip().lower()
+                old_lower = str(old_val).strip().lower()
+
+                # Now enrolling. This is the alert people save a trial for.
+                if (
+                    new_lower in _OPENING_STATUSES
+                    and old_lower not in _OPENING_STATUSES
+                ):
+                    desc = (
+                        f"Now enrolling. This trial opened for enrollment "
+                        f"({old_val} to {new_val})."
+                    )
+                    severity = "high"
+                # Closing. Act now or the window is gone.
+                elif new_lower in _CLOSING_STATUSES:
+                    desc = f"No longer enrolling ({old_val} to {new_val})."
+                    severity = "high"
 
         changes.append(
             {

@@ -799,6 +799,27 @@ main {
   background: var(--amber-tint);
   color: #8a5a07;
 }
+.pill--closed {
+  background: var(--gray-tint);
+  color: var(--gray-tier);
+}
+
+/* Explains why a trial that is not currently enrolling still appears. */
+.availability-note {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.7rem;
+}
+.availability-note--soon {
+  background: var(--amber-tint);
+  color: #7a4f06;
+}
+.availability-note--closed {
+  background: var(--gray-tint);
+  color: var(--ink-soft);
+}
 
 /* ---------- Biomarker callout ---------- */
 .biomarker {

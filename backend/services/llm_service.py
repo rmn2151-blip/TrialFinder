@@ -76,7 +76,12 @@ async def rank_and_reason(
             "single valid JSON object and nothing else. No markdown fences, "
             "no commentary before or after the JSON."
         ),
-        max_tokens=8000,
+        # Each ranked trial carries score_breakdown, citations, insurance,
+        # biomarker and washout fields, plus up to five excluded trials with
+        # reasons. At 8000 the JSON was being cut off mid-string, which fails
+        # to parse and silently yields zero results. Reasoning models also
+        # spend tokens before emitting any output, so budget generously.
+        max_tokens=24000,
         json_only=True,
     )
     return _parse_response(raw_json, patient)
@@ -158,11 +163,31 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        logger.error(f"Claude returned invalid JSON: {e}\nRaw: {raw_json[:500]}")
-        # Return an empty response rather than crashing
+        # Distinguish truncation from malformed output. Truncation means the
+        # token budget was too small, which is a config problem, not a model
+        # problem, and it otherwise looks identical to "no trials found".
+        looks_truncated = (
+            cleaned and not cleaned.rstrip().endswith("}")
+        )
+        if looks_truncated:
+            logger.error(
+                "Ranking response was TRUNCATED at %d characters. Raise "
+                "max_tokens or lower CTGOV_PAGE_SIZE / MAX_TRIALS_RETURNED. "
+                "Tail: ...%s",
+                len(cleaned),
+                cleaned[-160:],
+            )
+            message = (
+                "The result was too long to process. Try a more specific "
+                "condition, or contact support if this keeps happening."
+            )
+        else:
+            logger.error("Ranking returned invalid JSON: %s\nRaw: %s", e, raw_json[:400])
+            message = "Unable to parse trial results. Please try again."
+
         return MatchResponse(
             trials=[],
-            search_context="Unable to parse trial results. Please try again.",
+            search_context=message,
             disclaimer=DISCLAIMER,
             condition_searched=patient.condition,
         )
@@ -205,14 +230,22 @@ def _parse_response(raw_json: str, patient: PatientProfile) -> MatchResponse:
             logger.warning(f"Skipping malformed trial entry {i}: {e}")
             continue
 
-    # Hard filter — only actively recruiting trials survive. The prompt asks
-    # for this too, but this belt-and-braces check ensures a non-recruiting
-    # trial can never leak through no matter what the LLM returns.
-    trials = [t for t in trials if _is_recruiting(t.status)]
+    # Drop only trials whose status we cannot interpret. Not-yet-recruiting
+    # and closing trials are kept on purpose so the patient can save them and
+    # be alerted when they open, reopen, or publish results.
+    trials = [t for t in trials if _is_showable(t.status)]
 
-    # Sort by fit_score descending in case Claude didn't fully comply
-    trials.sort(key=lambda t: t.fit_score, reverse=True)
-    # Re-number ranks after sort
+    # Tag each trial so the UI can group and label them.
+    for t in trials:
+        t.availability = classify_availability(t.status)
+
+    # Order: enrollable now first, then opening soon, then closed. Within each
+    # group, best fit first. A perfect match you cannot join yet should not
+    # outrank a good match you can join today.
+    _GROUP_ORDER = {"open": 0, "opening_soon": 1, "closed": 2}
+    trials.sort(
+        key=lambda t: (_GROUP_ORDER.get(t.availability, 3), -t.fit_score)
+    )
     for i, trial in enumerate(trials):
         trial.rank = i + 1
 
@@ -313,19 +346,59 @@ def _parse_str_list(raw) -> list[str]:
     return [str(x).strip() for x in raw if str(x).strip()]
 
 
-# Only these statuses are user-actionable — patients can actually enroll.
-# Everything else (Completed, Terminated, Suspended, Withdrawn, Unknown,
-# Not yet recruiting, Active/not recruiting, etc.) is hidden.
-_ACTIVE_STATUSES = {
+# Statuses a patient can act on today.
+_OPEN_STATUSES = {
     "recruiting",
     "enrolling by invitation",
 }
 
+# Not open yet, but worth showing so the patient can save it and be emailed
+# the moment it starts enrolling.
+_OPENING_SOON_STATUSES = {
+    "not yet recruiting",
+    "available",
+}
 
-def _is_recruiting(status) -> bool:
-    if not status:
-        return False
-    return str(status).strip().lower() in _ACTIVE_STATUSES
+# Closed to new enrollment. Still worth showing, because saving one is how a
+# patient finds out if it reopens or publishes results.
+_CLOSED_STATUSES = {
+    "active, not recruiting",
+    "active not recruiting",
+    "completed",
+    "suspended",
+    "terminated",
+    "withdrawn",
+}
+
+
+def classify_availability(status) -> str:
+    """
+    Bucket a CT.gov status into what it means for the patient:
+    "open" (enroll now), "opening_soon" (watch it), or "closed" (not enrolling).
+    """
+    s = str(status or "").strip().lower()
+    if s in _OPEN_STATUSES:
+        return "open"
+    if s in _OPENING_SOON_STATUSES:
+        return "opening_soon"
+    if s in _CLOSED_STATUSES:
+        return "closed"
+    return "unknown"
+
+
+def _is_showable(status) -> bool:
+    """
+    Whether a trial belongs in results at all.
+
+    Deliberately broader than "can enroll today". A trial opening next month
+    is useful: the patient saves it and the alert sweep emails them when it
+    flips to recruiting. A closing trial is useful too, both as a signal to
+    act fast and because saved trials surface published results later.
+
+    Only genuinely unusable entries are dropped, i.e. ones whose status we
+    cannot determine at all.
+    """
+    return classify_availability(status) != "unknown"
 
 
 def _compute_earliest_date(washout_weeks, last_treatment_date):

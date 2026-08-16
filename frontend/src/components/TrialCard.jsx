@@ -113,6 +113,20 @@ export default function TrialCard({ trial, patient }) {
         {trial.intervention_type && (
           <span className="pill pill--muted">{trial.intervention_type}</span>
         )}
+        {/* Enrollment availability. Distinct from the washout pill below:
+            this is about the trial's own status, that one is about when the
+            patient personally becomes eligible. */}
+        {trial.availability === "opening_soon" && (
+          <span className="pill pill--soon" title="Not open yet">
+            Opening soon
+          </span>
+        )}
+        {trial.availability === "closed" && (
+          <span className="pill pill--closed" title="Not currently enrolling">
+            Not enrolling
+          </span>
+        )}
+
         {/* Washout availability */}
         {(() => {
           if (trial.washout_weeks === 0)
@@ -288,6 +302,21 @@ export default function TrialCard({ trial, patient }) {
             </a>
           ))}
         </div>
+      )}
+
+      {/* Explain why a non-open trial is still worth saving. Without this,
+          seeing a closed trial in results reads like a bug. */}
+      {trial.availability === "opening_soon" && (
+        <p className="availability-note availability-note--soon">
+          This trial has not opened yet. Save it and we will email you the day
+          it starts enrolling.
+        </p>
+      )}
+      {trial.availability === "closed" && (
+        <p className="availability-note availability-note--closed">
+          This trial is not enrolling right now. Save it and we will email you
+          if it reopens or publishes results.
+        </p>
       )}
 
       <div className="trial-card__foot">

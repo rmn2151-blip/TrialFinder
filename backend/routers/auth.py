@@ -10,7 +10,7 @@ registered.
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from middleware.rate_limit import limiter
@@ -46,6 +46,25 @@ _IS_PROD = os.getenv("ENVIRONMENT", "development").lower() in {
 }
 
 
+def _queue_email(tasks: BackgroundTasks, fn, *args) -> bool:
+    """
+    Schedule an email to send AFTER the response is returned.
+
+    Measured on a fast connection, a single Gmail SMTP send costs ~4.4s
+    (connect, STARTTLS, login, send). Doing that inline made registration and
+    login feel broken and could exceed the client timeout entirely. The user
+    does not need to wait for the SMTP handshake to learn their account was
+    created.
+
+    Returns True if a provider is configured (so the caller knows whether to
+    surface the code in the response instead).
+    """
+    if not email_service.is_configured():
+        return False
+    tasks.add_task(fn, *args)
+    return True
+
+
 def _expose_dev_code(code: str | None, *, delivered: bool = False) -> str | None:
     """
     Return the one-time code to the client only when it is safe AND useful.
@@ -74,7 +93,12 @@ def _client_ip(request: Request) -> str:
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("5/hour")
-def register(request: Request, body: RegisterRequest, db: Session = Depends(get_db)):
+def register(
+    request: Request,
+    body: RegisterRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     try:
         account, code = auth_service.register(db, body.email, body.password)
     except AuthError as e:
@@ -87,17 +111,21 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
     db.commit()
     db.refresh(account)
 
-    delivered = email_service.send_verification_code(account.email, code)
+    # Queued, not awaited: the response returns in milliseconds and the SMTP
+    # handshake happens after.
+    delivered = _queue_email(
+        background, email_service.send_verification_code, account.email, code
+    )
     logger.info(
-        "auth.registered account_id=%s ip=%s email_delivered=%s",
+        "auth.registered account_id=%s ip=%s email_queued=%s",
         account.id,
         _client_ip(request),
         delivered,
     )
     if not delivered:
         logger.warning(
-            "auth.email_not_delivered account_id=%s. The verification code is "
-            "%s. See the error above for the provider's reason.",
+            "auth.no_email_provider account_id=%s. Verification code is %s "
+            "(returned in the API response for local development).",
             account.id,
             code,
         )
@@ -134,7 +162,10 @@ def verify_email(request: Request, body: VerifyRequest, db: Session = Depends(ge
 @router.post("/resend-verification", response_model=VerifyStatus)
 @limiter.limit("3/hour")
 def resend_verification(
-    request: Request, body: ResendRequest, db: Session = Depends(get_db)
+    request: Request,
+    body: ResendRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     account, code = auth_service.issue_new_code(db, body.email)
     generic = "If that account exists, a new code has been sent."
@@ -144,9 +175,11 @@ def resend_verification(
         return VerifyStatus(email=body.email, email_verified=False, message=generic)
 
     db.commit()
-    delivered = email_service.send_verification_code(account.email, code)
+    delivered = _queue_email(
+        background, email_service.send_verification_code, account.email, code
+    )
     logger.info(
-        "auth.verification_resent account_id=%s delivered=%s", account.id, delivered
+        "auth.verification_resent account_id=%s email_queued=%s", account.id, delivered
     )
 
     message = generic
@@ -168,7 +201,12 @@ def resend_verification(
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
-def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    request: Request,
+    body: LoginRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     ip = _client_ip(request)
     try:
         account = auth_service.authenticate(db, body.email, body.password)
@@ -181,9 +219,11 @@ def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     if not account.email_verified:
         _, code = auth_service.issue_new_code(db, account.email)
         db.commit()
-        delivered = email_service.send_verification_code(account.email, code)
+        delivered = _queue_email(
+            background, email_service.send_verification_code, account.email, code
+        )
         logger.info(
-            "auth.login_unverified account_id=%s ip=%s delivered=%s",
+            "auth.login_unverified account_id=%s ip=%s email_queued=%s",
             account.id,
             ip,
             delivered,
@@ -234,7 +274,10 @@ def me(account: Account = Depends(get_current_account)):
 @router.post("/forgot-password", response_model=SimpleMessage)
 @limiter.limit("3/hour")
 def forgot_password(
-    request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)
+    request: Request,
+    body: ForgotPasswordRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
 ):
     """Uniform response regardless of whether the account exists."""
     account, code = auth_service.issue_reset_code(db, body.email)
@@ -255,9 +298,11 @@ def forgot_password(
         return SimpleMessage(message=generic)
 
     db.commit()
-    delivered = email_service.send_password_reset(account.email, code)
+    delivered = _queue_email(
+        background, email_service.send_password_reset, account.email, code
+    )
     logger.info(
-        "auth.reset_requested account_id=%s delivered=%s", account.id, delivered
+        "auth.reset_requested account_id=%s email_queued=%s", account.id, delivered
     )
     return SimpleMessage(
         message=generic, dev_code=_expose_dev_code(code, delivered=delivered)

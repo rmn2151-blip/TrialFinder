@@ -3,7 +3,29 @@ import { MOCK_MATCH_RESPONSE } from "./mockData.js";
 
 // Base URL: in dev, Vite proxies /api -> localhost:8000 (see vite.config.js).
 // In production set VITE_API_BASE_URL to the deployed backend origin.
+//
+// Vite inlines this at BUILD time, so changing the variable on the hosting
+// platform has no effect until a new build runs.
 const baseURL = import.meta.env.VITE_API_BASE_URL || "";
+
+// Deployed builds served over https with no API base URL will call their own
+// origin, which has no backend. Say so loudly in the console, because the
+// resulting failure is indistinguishable from a network outage.
+if (
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1" &&
+  !baseURL
+) {
+  console.error(
+    "[TrialFinder] VITE_API_BASE_URL is empty in this build. API calls will " +
+      "go to " + window.location.origin + " and fail. Set VITE_API_BASE_URL " +
+      "in your hosting provider's environment variables, then trigger a NEW " +
+      "build (redeploy without build cache)."
+  );
+} else if (typeof window !== "undefined" && baseURL) {
+  console.info("[TrialFinder] API base URL:", baseURL);
+}
 
 // Set VITE_USE_MOCK=true to develop the results UI without a running backend.
 // (Auth/profiles/watchlist still require the real backend.)
@@ -549,6 +571,28 @@ function normalizeError(err) {
     );
   }
   if (err.request) {
+    // A CORS rejection is indistinguishable from a network failure in the
+    // browser: JavaScript only ever sees "request sent, no response". So name
+    // both likely causes rather than blaming the network alone.
+    const isDeployed =
+      typeof window !== "undefined" &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1";
+
+    if (isDeployed && !baseURL) {
+      return new Error(
+        "This site was built without an API address. Set VITE_API_BASE_URL " +
+          "in your hosting provider, then redeploy without build cache."
+      );
+    }
+    if (isDeployed) {
+      return new Error(
+        `Could not reach the API at ${baseURL}. Either the backend is down, ` +
+          "or it is rejecting this site's origin (CORS). On the backend, set " +
+          `FRONTEND_URL to ${window.location.origin} and redeploy. ` +
+          "The browser console has the exact error."
+      );
+    }
     return new Error(
       "Couldn't reach the server. Check your connection and make sure the backend is running."
     );

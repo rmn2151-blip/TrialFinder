@@ -34,12 +34,28 @@ _MOCK_MODE = (
 _CTGOV_API = "https://clinicaltrials.gov/api/v2/studies"
 
 # How many trials to pull from CT.gov per search.
-_CTGOV_PAGE_SIZE = int(os.getenv("CTGOV_PAGE_SIZE", "25"))
+# Every trial here becomes ~900 characters of eligibility text in the ranking
+# prompt, so this is the single biggest lever on search latency. 12 gives the
+# model enough to choose from while keeping the prompt small enough to rank
+# quickly. Raise it if you want breadth over speed.
+_CTGOV_PAGE_SIZE = int(os.getenv("CTGOV_PAGE_SIZE", "12"))
 
 
 # ---------------------------------------------------------------------------
 # Primary: ClinicalTrials.gov
 # ---------------------------------------------------------------------------
+
+
+# Statuses we surface to patients.
+#
+# RECRUITING / ENROLLING_BY_INVITATION are actionable today. NOT_YET_RECRUITING
+# is included deliberately: a trial opening next month is exactly what a
+# watchlist is for, and the alert sweep will email the user the moment it
+# flips to recruiting. ACTIVE_NOT_RECRUITING is included so users can watch
+# for results being published.
+_PATIENT_RELEVANT_STATUSES = (
+    "RECRUITING|ENROLLING_BY_INVITATION|NOT_YET_RECRUITING|ACTIVE_NOT_RECRUITING"
+)
 
 
 async def fetch_ctgov_trials(
@@ -67,7 +83,7 @@ async def fetch_ctgov_trials(
         params["query.locn"] = location
     if recruiting_only:
         # CT.gov accepts a pipe-separated list of statuses.
-        params["filter.overallStatus"] = "RECRUITING|ENROLLING_BY_INVITATION"
+        params["filter.overallStatus"] = _PATIENT_RELEVANT_STATUSES
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:

@@ -10,6 +10,7 @@ That's fine for a demo; set DATABASE_URL to a managed Postgres for persistence.
 """
 
 import os
+import threading
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
@@ -57,6 +58,28 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 Base = declarative_base()
 
+# Signals that tables exist and the database is usable.
+#
+# Schema setup runs in a background thread at startup so the HTTP listener can
+# bind immediately (a blocking connect made platform healthchecks fail). That
+# creates a short window where a request could arrive before the tables exist,
+# so request-scoped sessions wait on this event first.
+_db_ready = threading.Event()
+
+# How long a request will wait for startup to finish before giving up.
+DB_READY_TIMEOUT_SECONDS = float(os.getenv("DB_READY_TIMEOUT", "20"))
+
+
+def wait_until_ready(timeout: float | None = None) -> bool:
+    """Block until the schema is ready. Returns False on timeout."""
+    return _db_ready.wait(
+        DB_READY_TIMEOUT_SECONDS if timeout is None else timeout
+    )
+
+
+def is_ready() -> bool:
+    return _db_ready.is_set()
+
 
 def init_db() -> None:
     """
@@ -93,6 +116,7 @@ def init_db() -> None:
         Base.metadata.drop_all(bind=engine)
 
     Base.metadata.create_all(bind=engine)
+    _db_ready.set()
 
 
 @contextmanager
@@ -111,6 +135,22 @@ def session_scope():
 
 # FastAPI dependency
 def get_db():
+    """
+    Request-scoped session.
+
+    Waits for background schema setup to finish before handing out a session,
+    so an early request cannot hit "no such table". Health checks do not use
+    this dependency, so liveness stays instant regardless.
+    """
+    if not _db_ready.is_set() and not wait_until_ready():
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=503,
+            detail="The service is still starting up. Please try again in a moment.",
+            headers={"Retry-After": "5"},
+        )
+
     db = SessionLocal()
     try:
         yield db
