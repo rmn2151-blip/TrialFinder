@@ -1,10 +1,22 @@
-# Root-level shim so the app builds whether or not the platform's
-# "Root Directory" setting is applied.
+# Root-level dependency list for platform builds (Railway / Railpack).
 #
-# Railpack detects Python by finding a requirements.txt. When Railway builds
-# from the repo root (Root Directory ignored or unset), this file is what it
-# finds, and it simply defers to the real dependency list in backend/.
+# This intentionally duplicates backend/requirements.txt rather than using
+# "-r backend/requirements.txt". Railpack copies ONLY the manifest file into
+# the dependency-install layer for caching, so backend/ does not exist yet at
+# install time and the include path fails with "No such file or directory".
 #
-# The matching start command lives in the root Procfile, which cds into
-# backend/ so `main:app` resolves.
--r backend/requirements.txt
+# Keep this in sync with backend/requirements.txt when adding a dependency.
+fastapi==0.136.3
+uvicorn[standard]==0.32.1
+httpx==0.28.1
+python-dotenv==1.2.2
+anthropic==0.40.0
+google-genai==2.18.1
+pydantic==2.13.4
+pydantic-settings==2.6.1
+slowapi==0.1.9
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+PyJWT==2.13.0
+bcrypt==4.2.0
+reportlab==4.2.5
