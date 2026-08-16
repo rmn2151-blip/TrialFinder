@@ -10,6 +10,7 @@ Deploy (Railway / Render):
 
 import logging
 import os
+import threading
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -253,23 +254,33 @@ async def startup():
             "frontend will be blocked by CORS until you set it."
         )
 
-    # Database. A failure here used to kill the container before it bound a
-    # port, which surfaces as Railway's 'train has not arrived' 404.
-    try:
-        init_db()
-        STARTUP_STATE["database"] = "connected"
-        logger.info("  database      = connected, tables ready")
-    except Exception as exc:
-        STARTUP_STATE["database"] = "failed"
-        detail = f"{type(exc).__name__}: {exc}"[:300]
-        STARTUP_STATE["errors"].append(f"Database init failed. {detail}")
-        logger.error("  database      = FAILED. %s", detail)
-        logger.error(
-            "    If you just added Postgres, confirm DATABASE_URL is set on "
-            "THIS service (Variables tab) and that the database finished "
-            "provisioning, then redeploy."
-        )
+    # Database init runs in a background thread rather than inline.
+    #
+    # Uvicorn does not accept connections until the startup event returns, so
+    # a slow or unreachable Postgres would hold the port closed and every
+    # platform healthcheck would fail with "service unavailable" while the
+    # app looked fine in the logs. Starting the listener immediately and
+    # connecting in the background keeps /api/health answerable throughout.
+    def _init_database() -> None:
+        try:
+            init_db()
+            STARTUP_STATE["database"] = "connected"
+            logger.info("database = connected, tables ready")
+        except Exception as exc:
+            STARTUP_STATE["database"] = "failed"
+            detail = f"{type(exc).__name__}: {exc}"[:300]
+            STARTUP_STATE["errors"].append(f"Database init failed. {detail}")
+            logger.error("database = FAILED. %s", detail)
+            logger.error(
+                "  If you just added Postgres, confirm DATABASE_URL is set on "
+                "THIS service (Variables tab) and that the database finished "
+                "provisioning, then redeploy."
+            )
+
+    STARTUP_STATE["database"] = "connecting"
+    threading.Thread(target=_init_database, name="db-init", daemon=True).start()
 
     logger.info("Trial data: ClinicalTrials.gov API (free, no key required)")
+    logger.info("Listener starting now; database connecting in background.")
     logger.info("Startup complete. Health: /api/health")
     logger.info("=" * 60)

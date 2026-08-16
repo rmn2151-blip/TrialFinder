@@ -33,9 +33,27 @@ elif DATABASE_URL.startswith("postgresql://"):
     )
 
 # check_same_thread is a SQLite-only arg; skip it for other backends.
-_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+if DATABASE_URL.startswith("sqlite"):
+    _connect_args = {"check_same_thread": False}
+    _engine_kwargs = {}
+else:
+    # Fail fast instead of hanging. Without an explicit timeout a wrong host
+    # can block for a minute or more, which stalls startup and makes the
+    # platform healthcheck report "service unavailable".
+    _connect_args = {"connect_timeout": 10}
+    _engine_kwargs = {
+        # Recycle before typical managed-Postgres idle timeouts, and verify
+        # the connection before handing it out, so the first request after a
+        # quiet period does not fail on a dead socket.
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 5,
+    }
 
-engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True)
+engine = create_engine(
+    DATABASE_URL, connect_args=_connect_args, future=True, **_engine_kwargs
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 Base = declarative_base()
 
