@@ -1,0 +1,10 @@
+# Root-level shim so the app builds whether or not the platform's
+# "Root Directory" setting is applied.
+#
+# Railpack detects Python by finding a requirements.txt. When Railway builds
+# from the repo root (Root Directory ignored or unset), this file is what it
+# finds, and it simply defers to the real dependency list in backend/.
+#
+# The matching start command lives in the root Procfile, which cds into
+# backend/ so `main:app` resolves.
+-r backend/requirements.txt
