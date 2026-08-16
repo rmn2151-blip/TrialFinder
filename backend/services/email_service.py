@@ -43,14 +43,30 @@ def is_configured() -> bool:
 
 
 def _from_address() -> str:
-    # Resend allows onboarding@resend.dev for testing without domain setup.
-    # For SMTP, default to the authenticating account.
+    """
+    The From header.
+
+    Note on Gmail SMTP: Gmail rewrites this to the authenticated account
+    unless the address is a verified alias on that account, so setting
+    EMAIL_FROM to an arbitrary address will NOT hide the sending mailbox.
+    To keep a personal address off outgoing mail, authenticate as a dedicated
+    account (e.g. a project-specific Gmail), or use a provider with a
+    verified domain.
+    """
     explicit = os.getenv("EMAIL_FROM")
     if explicit:
         return explicit
     if _smtp_configured():
         return os.getenv("SMTP_USER", "")
     return "TrialFinder <onboarding@resend.dev>"
+
+
+def _reply_to() -> str | None:
+    """
+    Optional Reply-To. Unlike From, this is not rewritten, so it is the one
+    reliable way to route replies somewhere other than the sending mailbox.
+    """
+    return os.getenv("EMAIL_REPLY_TO") or None
 
 
 def _send_via_smtp(to_email: str, subject: str, text: str, html: str) -> bool:
@@ -64,6 +80,9 @@ def _send_via_smtp(to_email: str, subject: str, text: str, html: str) -> bool:
     msg["Subject"] = subject
     msg["From"] = _from_address()
     msg["To"] = to_email
+    reply_to = _reply_to()
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
 
@@ -150,17 +169,22 @@ def _send(to_email: str, subject: str, text: str, html: str) -> bool:
 
     # Path 1: Resend.
     sender = _from_address()
+    payload = {
+        "from": sender,
+        "to": [to_email],
+        "subject": subject,
+        "html": html,
+        "text": text,
+    }
+    reply_to = _reply_to()
+    if reply_to:
+        payload["reply_to"] = reply_to
+
     try:
         resp = httpx.post(
             _RESEND_API,
             headers={"Authorization": f"Bearer {key}"},
-            json={
-                "from": sender,
-                "to": [to_email],
-                "subject": subject,
-                "html": html,
-                "text": text,
-            },
+            json=payload,
             timeout=15.0,
         )
     except Exception as exc:

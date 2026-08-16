@@ -65,7 +65,7 @@ cp .env.example .env
 
 **Windows note:** replace `source venv/bin/activate` with `venv\Scripts\activate`, and replace `cp .env.example .env` with `copy .env.example .env`.
 
-Before you start the backend you need to add two secret keys to the `.env` file you just created (see **Step 5** below). Once that's done, start the backend with:
+Before you start the backend you need to add a secret key to the `.env` file you just created (see **Step 5** below). Once that's done, start the backend with:
 
 ```
 uvicorn main:app --reload
@@ -87,14 +87,15 @@ When it finishes, it will show a web address like `http://localhost:5173`. Open 
 
 ### Step 5 — Add your API keys
 
-TrialFinder needs a couple of keys to work fully. Paste them into the `backend/.env` file you created in Step 3 (open it with any text editor like Notepad or TextEdit):
+TrialFinder needs one AI key to work fully, plus a secret for logins. Paste them into the `backend/.env` file you created in Step 3 (open it with any text editor like Notepad or TextEdit):
 
-- `LINKUP_API_KEY` — get one from <https://www.linkup.so/>. This powers the trial search.
-- `ANTHROPIC_API_KEY` — get one from <https://console.anthropic.com/>. This powers the AI ranking.
+- `GEMINI_API_KEY` — get one free at <https://aistudio.google.com/apikey> (5,000 free grounded prompts/month). This is the default provider and powers both trial ranking and supplementary search. Trial data itself comes from ClinicalTrials.gov, which needs no key at all.
 - `JWT_SECRET` — set this to any long random string (it keeps logins secure).
-- `RESEND_API_KEY` — optional; only needed if you want email alerts.
+- `RESEND_API_KEY` — optional; only needed if you want email alerts and don't want to use the SMTP option already set up for Gmail.
 
-> **Just want to try it without paying for API credits?** In `backend/.env`, set `MOCK_LINKUP=true`. The app will use built-in sample data instead of live searches, so you don't need the Linkup or Anthropic keys to click around.
+Prefer Claude instead of Gemini? Set `LLM_PROVIDER=claude` and `ANTHROPIC_API_KEY` instead — everything else works the same either way.
+
+> **Just want to try it without an AI key at all?** In `backend/.env`, set `MOCK_SEARCH=true`. The app will use built-in sample data instead of live searches, so you don't need any AI provider key to click around.
 
 ### Step 6 — Use the app
 
@@ -107,15 +108,15 @@ With both windows running, go to `http://localhost:5173` in your browser, fill o
 - **"command not found"** — the tool from Step 1 isn't installed correctly, or you need to close and reopen the terminal after installing it.
 - **The website won't load** — make sure BOTH terminal windows are still running without errors.
 - **"port already in use"** — an old copy is still running. Close all terminal windows and start again.
-- **Nothing happens after a search** — check your API keys in `backend/.env`, or set `MOCK_LINKUP=true` to test with sample data.
+- **Nothing happens after a search** — check your API key in `backend/.env`, or set `MOCK_SEARCH=true` to test with sample data.
 
 ---
 
 ## How it works
 
 1. You fill out a short intake form covering your condition, biomarkers, treatments you've tried, where you are, and what medications you're on.
-2. The app fires three parallel searches using the Linkup API to pull open trials from clinicaltrials.gov, recent results from related trials, and journal coverage explaining what each trial is actually testing.
-3. Claude reads all of that against your profile and ranks the top trials by fit, writing a personalized "why this fits you" explanation for each one.
+2. The app pulls open trials straight from the ClinicalTrials.gov v2 API (free, no key needed), then uses the LLM provider's built-in grounded web search for supplementary context — recent results, site reputation, and plain-English drug info.
+3. Gemini (or Claude, if you switch providers) reads all of that against your profile and ranks the top trials by fit, writing a personalized "why this fits you" explanation for each one.
 4. You get a clean list with fit scores, plain-English summaries, eligibility at a glance, and flags for anything that might be a problem.
 
 The whole thing takes about 15-30 seconds.
@@ -130,7 +131,7 @@ The whole thing takes about 15-30 seconds.
 - personalized "why this fits you" reasoning that references your specific history
 - trust score breakdown showing confidence across eligibility criteria, location, and line of therapy
 - excluded trials panel so you can see what got ruled out and why
-- falls back to the free ClinicalTrials.gov API automatically when search results are thin
+- trial data pulled directly from the free ClinicalTrials.gov API, so results are never gated behind a search-provider outage or credit limit
 
 **Your account**
 
@@ -148,17 +149,16 @@ The whole thing takes about 15-30 seconds.
 
 - **frontend:** React with Vite
 - **backend:** FastAPI (Python)
-- **search:** Linkup API (3 parallel queries per patient search)
-- **AI ranking:** Anthropic Claude (claude-sonnet-4-6)
+- **trial data:** ClinicalTrials.gov v2 API (primary source, free, no key needed)
+- **AI ranking + supplementary search:** Gemini by default, or Claude — switch with `LLM_PROVIDER`. Both providers' built-in grounded web search covers recent results, site reputation, and drug info, so there's no separate search API to sign up for.
 - **database:** SQLAlchemy with SQLite (swappable to PostgreSQL via DATABASE_URL)
-- **email alerts:** Resend
-- **trial data fallback:** ClinicalTrials.gov v2 API (free, no key needed)
+- **email alerts:** SMTP (Gmail) or Resend
 
 ## Running tests
 
 ```
 cd backend
-MOCK_LINKUP=true pytest tests/ -v
+MOCK_SEARCH=true pytest tests/ -v
 ```
 
 ## Project structure
@@ -169,7 +169,9 @@ TrialFinder/
 │   ├── main.py
 │   ├── models/
 │   ├── services/
-│   │   ├── linkup_service.py
+│   │   ├── search_service.py
+│   │   ├── ctgov_service.py
+│   │   ├── llm_provider.py
 │   │   ├── matching_service.py
 │   │   ├── llm_service.py
 │   │   ├── cache.py
@@ -195,7 +197,7 @@ TrialFinder/
 
 ## A note on API costs
 
-Each patient search costs roughly $0.06-0.12 in Linkup credits (3 queries at standard depth). The caching layer means repeat searches on the same condition and location are free. Use `LINKUP_DEPTH=standard` while testing and switch to `deep` for demos.
+Trial data itself is free — ClinicalTrials.gov needs no key and has no rate limit worth worrying about. On the AI side, Gemini's free tier covers 5,000 grounded prompts a month, which is enough for normal use and demos without spending anything. Switching to Claude via `LLM_PROVIDER=claude` uses your Anthropic account's normal usage-based pricing instead. Either way, the caching layer means repeat searches on the same condition and location don't re-hit the AI provider.
 
 ---
 

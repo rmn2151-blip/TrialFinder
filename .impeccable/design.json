@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-15T00:00:00.000Z",
+  "title": "Design System: TrialFinder",
+  "extensions": {
+    "colorMeta": {
+      "clinical-trust-blue": {
+        "role": "primary",
+        "displayName": "Clinical Trust Blue",
+        "canonical": "#1f6feb",
+        "tonalRamp": ["#0a1a3d", "#0f2a5c", "#15407f", "#1a56a8", "#1f6feb", "#5a94f0", "#a3c5f7", "#e5f0fd"]
+      },
+      "recruiting-green": {
+        "role": "success",
+        "displayName": "Recruiting Green",
+        "canonical": "#1f9d57",
+        "tonalRamp": ["#0a3320", "#0f4a2e", "#146339", "#187c46", "#1f9d57", "#5cbf85", "#a3dcbf", "#e5f7ec"]
+      },
+      "caution-amber": {
+        "role": "warning",
+        "displayName": "Caution Amber",
+        "canonical": "#b8770a",
+        "tonalRamp": ["#3d2703", "#5c3a05", "#7f4f07", "#a06509", "#b8770a", "#d69a3f", "#eabf7f", "#fbe8cc"]
+      },
+      "biomarker-violet": {
+        "role": "accent",
+        "displayName": "Biomarker Violet",
+        "canonical": "#7d5cff",
+        "tonalRamp": ["#241548", "#361f6b", "#4a2c8f", "#5f3fb8", "#7d5cff", "#a586ff", "#c9b3ff", "#ede6ff"]
+      },
+      "alert-red": {
+        "role": "error",
+        "displayName": "Alert Red",
+        "canonical": "#b3261e",
+        "tonalRamp": ["#3d0c09", "#5c130f", "#7f1a15", "#a0211b", "#b3261e", "#d15a52", "#e79690", "#fbe0de"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#14202e",
+        "tonalRamp": ["#14202e", "#2a3a4a", "#4a5a6a", "#6b7785", "#7d8b99", "#a8b4bd", "#e3e9f0", "#f6f8fb"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero title and the results-page condition heading. One per page, at most." },
+      "title": { "displayName": "Title", "purpose": "Trial card titles, intake step legend, state-card title." },
+      "body": { "displayName": "Body", "purpose": "Default paragraph text; the page-level default with no dedicated class." },
+      "label": { "displayName": "Label", "purpose": "Uppercase eyebrows and micro-labels; small, loud, sparing." }
+    },
+    "shadows": [
+      { "name": "ambient-card", "value": "0 1px 2px rgba(20, 32, 46, 0.04), 0 8px 24px rgba(20, 32, 46, 0.06)", "purpose": "Default for any card-like surface (trial card, intake panel, state card)." },
+      { "name": "overlay", "value": "0 8px 30px rgba(20, 32, 46, 0.16)", "purpose": "Reserved for the one surface that sits above the page; not for ordinary cards." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "150ms ease", "purpose": "Default hover/focus/background transition timing across buttons, chips, and status pills." },
+      { "name": "ease-progress", "value": "300ms ease", "purpose": "Intake progress-bar fill transition." }
+    ],
+    "breakpoints": [
+      { "name": "lg", "value": "1000px" },
+      { "name": "md", "value": "720px" },
+      { "name": "sm", "value": "560px" },
+      { "name": "xs", "value": "480px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action button (e.g. submit intake, log in).",
+      "html": "<button class=\"ds-btn-primary\">Find trials</button>",
+      "css": ".ds-btn-primary { font-weight: 600; border: 1px solid transparent; border-radius: 999px; padding: 0.65rem 1.3rem; cursor: pointer; background: #1f6feb; color: #ffffff; transition: background 150ms ease, transform 50ms ease; } .ds-btn-primary:hover { background: #1457c4; } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 3px solid #1f6feb; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action button (e.g. log out, cancel).",
+      "html": "<button class=\"ds-btn-ghost\">Log out</button>",
+      "css": ".ds-btn-ghost { font-weight: 600; border: 1px solid #e3e9f0; border-radius: 999px; padding: 0.65rem 1.3rem; cursor: pointer; background: transparent; color: #4a5a6a; transition: background 150ms ease; } .ds-btn-ghost:hover { background: #eef1f5; } .ds-btn-ghost:focus-visible { outline: 3px solid #1f6feb; outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Canonical elevated container shared by trial cards, the intake panel, and state cards.",
+      "html": "<div class=\"ds-card\"><strong>Phase II Trial of Drug X</strong><p>Targets KRAS G12C mutations.</p></div>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid #e3e9f0; border-radius: 14px; box-shadow: 0 1px 2px rgba(20,32,46,0.04), 0 8px 24px rgba(20,32,46,0.06); padding: 1.05rem 1.15rem; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field-input",
+      "description": "Standard text input used throughout the intake form.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"e.g. stage 3 non-small cell lung cancer\" />",
+      "css": ".ds-input { width: 100%; padding: 0.7rem 0.85rem; border: 1px solid #e3e9f0; border-radius: 9px; background: #ffffff; color: #14202e; } .ds-input:focus { border-color: #1f6feb; outline: none; box-shadow: 0 0 0 3px #eaf1fe; }"
+    },
+    {
+      "name": "Selectable Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Toggleable tag used for medication/condition selection in intake.",
+      "html": "<button class=\"ds-chip ds-chip--selected\">Metformin</button>",
+      "css": ".ds-chip { font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 999px; border: 1px solid #e3e9f0; background: #ffffff; color: #4a5a6a; cursor: pointer; } .ds-chip:hover { border-color: #1f6feb; color: #1f6feb; } .ds-chip--selected { background: #1f6feb; border-color: #1f6feb; color: #ffffff; }"
+    },
+    {
+      "name": "Fit Badge (Strong)",
+      "kind": "chip",
+      "refersTo": "fit-badge-strong",
+      "description": "Circular score + tinted pill showing a strong trial match. Medium/weak variants swap the color pair (amber / gray) but keep this exact shape.",
+      "html": "<span class=\"ds-fit ds-fit--strong\"><span class=\"ds-fit__score\">92</span>Strong match</span>",
+      "css": ".ds-fit { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.7rem 0.3rem 0.4rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600; background: #e6f6ec; color: #136b3b; } .ds-fit__score { width: 1.9rem; height: 1.9rem; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #ffffff; background: #1f9d57; }"
+    },
+    {
+      "name": "Biomarker Callout",
+      "kind": "custom",
+      "refersTo": "callout-biomarker",
+      "description": "Left-accent callout reserved exclusively for biomarker information. The one component allowed outside the neutral/semantic palette.",
+      "html": "<div class=\"ds-callout\"><div class=\"ds-callout__title\">Biomarker match</div><p>KRAS G12C mutation detected in your report.</p></div>",
+      "css": ".ds-callout { display: flex; gap: 0.6rem; align-items: flex-start; background: #f1ecff; border-left: 4px solid #7d5cff; border-radius: 0 9px 9px 0; padding: 0.6rem 0.85rem; } .ds-callout__title { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: #4a39a8; margin-bottom: 0.25rem; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Clear Path",
+    "overview": "TrialFinder turns an intimidating, scattered process (finding an eligible clinical trial) into a small number of visible, sequential steps: intake progress ticks forward, results are ranked and scored rather than dumped as a list, and warnings/eligibility caveats are disclosed rather than buried. The system reads as professional enough for an enterprise/pharma audience, calm enough for a patient reading it hours after a diagnosis. It is not a consumer-brand experience and not a bare clinical tool, it sits deliberately between the two: restrained color, generous whitespace, one accent used sparingly, and status expressed through color + shape (pill badges, a circular score) rather than iconography or illustration.\n\nA single soft ambient shadow is the only depth cue; everything else is flat, bordered, and quiet.",
+    "keyCharacteristics": [
+      "One accent color (Clinical Trust Blue), used sparingly; everything else is neutral or purely semantic (status)",
+      "Pill (999px) and circle (50%) as the almost-exclusive corner language — nothing sharp-cornered",
+      "Status is color-coded consistently across the whole app: green = recruiting/strong/covered, amber = caution/medium/opening soon, violet = a distinct \"insight\" callout (biomarkers only), red = error only",
+      "Flat by default; one shared soft shadow token marks a surface as a card",
+      "Small, sparing use of uppercase label type (eyebrows, section labels) as the only typographic \"voice\" beyond size/weight"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Clinical Trust Blue is the only color used for brand/interactive emphasis. Every other color on screen is either neutral (structure/text) or semantic (status), never decorative.", "section": "colors" },
+      { "name": "The One-Display Rule", "body": "Only one Display-scale heading exists per screen. Everything else steps down to Title or smaller.", "section": "typography" },
+      { "name": "The Flat-by-Default Rule", "body": "Nothing gets a shadow just for being a container. A shadow means this specific surface is meant to feel lifted above the page, and there are exactly two shadow values in the whole system.", "section": "elevation" },
+      { "name": "The No-Sharp-Corners Rule", "body": "Nothing in the system has a 0px or small-arbitrary radius. Every shape is either a pill, a circle, or one of the two named radii (14px card, 9px control).", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep Clinical Trust Blue as the only interactive/brand accent — resist adding a second \"brand\" color even for a new feature.",
+      "Do use the pill/circle shape language for anything status- or action-shaped; use the 14px/9px radii only for containers and inputs.",
+      "Do reuse the exact green/amber/gray three-step scale for any new \"fit\" or \"quality\" ranking rather than inventing a new scale.",
+      "Do keep the biomarker violet exclusive to biomarker content so its rarity keeps doing work.",
+      "Do respect prefers-reduced-motion (already implemented globally) when adding any new transition or animation."
+    ],
+    "donts": [
+      "Don't add a shadow to a surface that isn't meant to read as a distinct raised card — flat is the default, not the fallback.",
+      "Don't introduce a second display-scale heading on one screen; step everything else down to Title or smaller.",
+      "Don't let \"Inter\" stay declared-but-unloaded — either load the webfont for real or stop claiming it in this document.",
+      "Don't use Alert Red for anything other than true error states, even under pressure to make a warning feel more urgent — that's what Caution Amber is for."
+    ]
+  }
+}
