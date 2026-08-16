@@ -240,6 +240,31 @@ async def startup():
         value = os.getenv(name, "")
         logger.info("  %-13s = %s", name, "set" if value else "NOT SET")
 
+    # Email is the single most common thing to configure locally and forget to
+    # set on the host, and its failure mode is silent: accounts are created,
+    # no code ever arrives, and nothing looks broken.
+    try:
+        from services import email_service
+
+        if email_service.is_configured():
+            provider = "Resend" if os.getenv("RESEND_API_KEY") else "SMTP"
+            logger.info(
+                "  email         = %s, sending as %s",
+                provider,
+                os.getenv("EMAIL_FROM") or os.getenv("SMTP_USER") or "(default)",
+            )
+        else:
+            logger.error(
+                "  email         = NOT CONFIGURED. Verification codes will NOT "
+                "be emailed. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD "
+                "and EMAIL_FROM (or RESEND_API_KEY) in this service's variables."
+            )
+            STARTUP_STATE["errors"].append(
+                "Email is not configured, so verification codes cannot be sent."
+            )
+    except Exception as exc:
+        logger.warning("  email         = check failed: %s", exc)
+
     if _IS_PROD and not os.getenv("JWT_SECRET", "").strip():
         msg = (
             "JWT_SECRET is not set but ENVIRONMENT=production. Authentication "
