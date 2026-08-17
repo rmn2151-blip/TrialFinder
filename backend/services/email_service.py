@@ -1,12 +1,24 @@
 """
 Email delivery for verification codes, password resets, and watchlist alerts.
 
-Three delivery paths, tried in order:
+Four delivery paths, tried in order:
 
-1. Resend HTTP API   — set RESEND_API_KEY. Easiest, no SMTP config.
-2. SMTP              — set SMTP_HOST, SMTP_USER, SMTP_PASSWORD. Works with a
-                       free Gmail account using an App Password.
-3. Log only          — neither configured. The email body is written to the
+1. SendGrid HTTP API — set SENDGRID_API_KEY. Needs only a verified Single
+                       Sender (click a confirmation link — no domain or DNS
+                       required), so it works even where outbound SMTP is
+                       blocked. Railway's network blocks raw SMTP traffic
+                       (confirmed: SMTP send fails there with
+                       "[Errno 101] Network is unreachable"), so this is the
+                       path that actually works when deployed there.
+2. Resend HTTP API   — set RESEND_API_KEY. Also HTTPS-based, but its shared
+                       sandbox sender can only deliver to the email address
+                       the Resend account itself was signed up with, unless
+                       you verify a full domain.
+3. SMTP              — set SMTP_HOST, SMTP_USER, SMTP_PASSWORD. Works with a
+                       free Gmail account using an App Password. Fine for
+                       local dev; blocked on platforms like Railway that
+                       filter outbound SMTP to prevent abuse.
+4. Log only          — none configured. The email body is written to the
                        server log so local dev still works.
 
 Provider is chosen automatically; you only need to configure one.
@@ -17,16 +29,22 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
 _RESEND_API = "https://api.resend.com/emails"
+_SENDGRID_API = "https://api.sendgrid.com/v3/mail/send"
 
 
 def _api_key() -> str:
     return os.getenv("RESEND_API_KEY", "")
+
+
+def _sendgrid_key() -> str:
+    return os.getenv("SENDGRID_API_KEY", "")
 
 
 def _smtp_configured() -> bool:
@@ -39,7 +57,7 @@ def _smtp_configured() -> bool:
 
 def is_configured() -> bool:
     """True when any real delivery path is available."""
-    return bool(_api_key()) or _smtp_configured()
+    return bool(_sendgrid_key()) or bool(_api_key()) or _smtp_configured()
 
 
 def _from_address() -> str:
@@ -67,6 +85,84 @@ def _reply_to() -> str | None:
     reliable way to route replies somewhere other than the sending mailbox.
     """
     return os.getenv("EMAIL_REPLY_TO") or None
+
+
+def _parse_from(addr: str) -> tuple[str, str]:
+    """
+    Split "Name <email@x.com>" into (name, email).
+
+    SendGrid's API wants the display name and address as separate JSON
+    fields, unlike the single header string SMTP/Resend accept.
+    """
+    name, email_addr = parseaddr(addr)
+    return name, email_addr or addr
+
+
+def _send_via_sendgrid(to_email: str, subject: str, text: str, html: str) -> bool:
+    """
+    Send through SendGrid's HTTPS API.
+
+    Only needs a verified Single Sender (SendGrid > Settings > Sender
+    Authentication > click a confirmation link) — no domain or DNS records
+    required, unlike Resend without a verified domain. Because this is a
+    plain HTTPS POST, it also works on platforms that block outbound SMTP.
+    """
+    key = _sendgrid_key()
+    name, sender_email = _parse_from(_from_address())
+    from_field = {"email": sender_email}
+    if name:
+        from_field["name"] = name
+
+    payload = {
+        "personalizations": [{"to": [{"email": to_email}]}],
+        "from": from_field,
+        "subject": subject,
+        "content": [
+            {"type": "text/plain", "value": text},
+            {"type": "text/html", "value": html},
+        ],
+    }
+    reply_to = _reply_to()
+    if reply_to:
+        payload["reply_to"] = {"email": reply_to}
+
+    try:
+        resp = httpx.post(
+            _SENDGRID_API,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=15.0,
+        )
+    except Exception as exc:
+        logger.error("Could not reach SendGrid to email %s: %s", to_email, exc)
+        return False
+
+    if resp.status_code >= 400:
+        # SendGrid puts the real reason in the response body. Without this
+        # the failure is invisible and looks like "the email just never
+        # arrived".
+        body = (resp.text or "")[:500]
+        logger.error(
+            "SendGrid rejected the email to %s (HTTP %s). from=%r response=%s",
+            to_email,
+            resp.status_code,
+            sender_email,
+            body,
+        )
+        if resp.status_code in (401, 403):
+            logger.error(
+                "HINT: SendGrid requires the 'from' address to be a verified "
+                "Single Sender (or a verified domain). Verify %r under "
+                "SendGrid > Settings > Sender Authentication.",
+                sender_email,
+            )
+        return False
+
+    logger.info("Sent email to %s via SendGrid", to_email)
+    return True
 
 
 def _send_via_smtp(to_email: str, subject: str, text: str, html: str) -> bool:
@@ -148,17 +244,23 @@ def send_password_reset(to_email: str, code: str) -> bool:
 
 
 def _send(to_email: str, subject: str, text: str, html: str) -> bool:
+    # Path 1: SendGrid. Checked first — it's the one path that works
+    # regardless of whether the host blocks outbound SMTP, and needs only a
+    # verified single sender rather than a verified domain.
+    if _sendgrid_key():
+        return _send_via_sendgrid(to_email, subject, text, html)
+
     key = _api_key()
 
-    # Path 2: SMTP, when no Resend key but SMTP is configured.
+    # Path 3: SMTP, when no Resend key but SMTP is configured.
     if not key and _smtp_configured():
         return _send_via_smtp(to_email, subject, text, html)
 
-    # Path 3: log only.
+    # Path 4: log only.
     if not key:
         logger.warning(
-            "No email provider configured (set RESEND_API_KEY or SMTP_*). "
-            "Would have emailed %s:\nSubject: %s\n%s",
+            "No email provider configured (set SENDGRID_API_KEY, "
+            "RESEND_API_KEY, or SMTP_*). Would have emailed %s:\nSubject: %s\n%s",
             to_email, subject, text,
         )
         # Return False, not True. Nothing was actually delivered, and callers
@@ -167,7 +269,7 @@ def _send(to_email: str, subject: str, text: str, html: str) -> bool:
         # screen waiting for an email that will never arrive.
         return False
 
-    # Path 1: Resend.
+    # Path 2: Resend.
     sender = _from_address()
     payload = {
         "from": sender,

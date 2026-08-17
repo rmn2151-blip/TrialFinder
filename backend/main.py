@@ -247,7 +247,13 @@ async def startup():
         from services import email_service
 
         if email_service.is_configured():
-            provider = "Resend" if os.getenv("RESEND_API_KEY") else "SMTP"
+            # Mirrors the real priority order in email_service._send().
+            if os.getenv("SENDGRID_API_KEY"):
+                provider = "SendGrid"
+            elif os.getenv("RESEND_API_KEY"):
+                provider = "Resend"
+            else:
+                provider = "SMTP"
             logger.info(
                 "  email         = %s, sending as %s",
                 provider,
@@ -256,8 +262,9 @@ async def startup():
         else:
             logger.error(
                 "  email         = NOT CONFIGURED. Verification codes will NOT "
-                "be emailed. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD "
-                "and EMAIL_FROM (or RESEND_API_KEY) in this service's variables."
+                "be emailed. Set SENDGRID_API_KEY, RESEND_API_KEY, or "
+                "SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD and EMAIL_FROM "
+                "in this service's variables."
             )
             STARTUP_STATE["errors"].append(
                 "Email is not configured, so verification codes cannot be sent."

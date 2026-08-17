@@ -152,7 +152,7 @@ The whole thing takes about 15-30 seconds.
 - **trial data:** ClinicalTrials.gov v2 API (primary source, free, no key needed)
 - **AI ranking + supplementary search:** Gemini by default, or Claude — switch with `LLM_PROVIDER`. Both providers' built-in grounded web search covers recent results, site reputation, and drug info, so there's no separate search API to sign up for.
 - **database:** SQLAlchemy with SQLite (swappable to PostgreSQL via DATABASE_URL)
-- **email alerts:** SMTP (Gmail) or Resend
+- **email alerts:** SendGrid, SMTP (Gmail), or Resend — SendGrid is the one that works when deployed to a host that blocks outbound SMTP (Railway confirmed does)
 
 ## Running tests
 

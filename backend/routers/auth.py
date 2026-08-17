@@ -10,7 +10,7 @@ registered.
 import logging
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from middleware.rate_limit import limiter
@@ -46,35 +46,62 @@ _IS_PROD = os.getenv("ENVIRONMENT", "development").lower() in {
 }
 
 
-def _queue_email(tasks: BackgroundTasks, fn, *args) -> bool:
+def _send_email(fn, *args) -> bool:
     """
-    Schedule an email to send AFTER the response is returned.
+    Send the email inline and return whether it actually succeeded.
 
-    Measured on a fast connection, a single Gmail SMTP send costs ~4.4s
-    (connect, STARTTLS, login, send). Doing that inline made registration and
-    login feel broken and could exceed the client timeout entirely. The user
-    does not need to wait for the SMTP handshake to learn their account was
-    created.
+    This used to schedule the send as a FastAPI BackgroundTask so the
+    response returned immediately (a Gmail SMTP send costs ~4.4s: connect,
+    STARTTLS, login, send). But that meant "delivered" only meant "a
+    provider is configured" — the real send happened after the response
+    was already built, so a genuine failure (bad credentials, a blocked
+    port) was invisible: the response claimed success and hid the
+    dev-code fallback, stranding the user with no code and no visible
+    error. That gap is worse than the latency it was avoiding.
 
-    Returns True if a provider is configured (so the caller knows whether to
-    surface the code in the response instead).
+    Sending inline still costs real time, but SendGrid/Resend's HTTPS APIs
+    are typically well under a second — nothing like raw SMTP's handshake.
+    For an auth-critical flow, a truthful "did this actually work" beats a
+    faster lie.
     """
     if not email_service.is_configured():
         return False
-    tasks.add_task(fn, *args)
-    return True
+    return bool(fn(*args))
+
+
+# Escape hatch for demos and for debugging deliverability.
+#
+# SECURITY TRADEOFF, stated plainly: when this is on, anyone who can call
+# /api/auth/register receives the verification code in the response. That
+# means they can verify an email address they do not control, which defeats
+# the purpose of verification. It is off by default and should stay off for
+# real users. Turn it on only when you need the flow to work on stage and
+# cannot depend on inbox delivery.
+_SHOW_CODE_ALWAYS = os.getenv("SHOW_VERIFICATION_CODE", "false").lower() == "true"
+
+if _SHOW_CODE_ALWAYS:
+    logger.warning(
+        "SHOW_VERIFICATION_CODE=true: verification codes are returned in API "
+        "responses. Anyone who can register can verify an address they do not "
+        "own. Use for demos only, and unset it before real users sign up."
+    )
 
 
 def _expose_dev_code(code: str | None, *, delivered: bool = False) -> str | None:
     """
     Return the one-time code to the client only when it is safe AND useful.
 
-    Never in production. Outside production we return it when the email did
-    not actually reach the user, which covers two real cases: no provider
-    configured at all, and a provider that rejected the recipient (Resend
-    sandbox mode only delivers to the account owner's own address). Without
-    this, a failed send leaves the user permanently unable to verify.
+    Three cases return it:
+      1. SHOW_VERIFICATION_CODE=true, an explicit operator override.
+      2. Outside production with no email provider configured.
+      3. Outside production where the provider rejected the recipient, e.g.
+         a sandboxed Resend account that only delivers to its own owner.
+
+    Without cases 2 and 3, a failed send leaves the user permanently unable
+    to verify, with no way forward.
     """
+    if _SHOW_CODE_ALWAYS:
+        return code
     if _IS_PROD:
         return None
     if delivered:
@@ -96,7 +123,6 @@ def _client_ip(request: Request) -> str:
 def register(
     request: Request,
     body: RegisterRequest,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     try:
@@ -111,13 +137,11 @@ def register(
     db.commit()
     db.refresh(account)
 
-    # Queued, not awaited: the response returns in milliseconds and the SMTP
-    # handshake happens after.
-    delivered = _queue_email(
-        background, email_service.send_verification_code, account.email, code
+    delivered = _send_email(
+        email_service.send_verification_code, account.email, code
     )
     logger.info(
-        "auth.registered account_id=%s ip=%s email_queued=%s",
+        "auth.registered account_id=%s ip=%s email_delivered=%s",
         account.id,
         _client_ip(request),
         delivered,
@@ -164,7 +188,6 @@ def verify_email(request: Request, body: VerifyRequest, db: Session = Depends(ge
 def resend_verification(
     request: Request,
     body: ResendRequest,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     account, code = auth_service.issue_new_code(db, body.email)
@@ -175,11 +198,11 @@ def resend_verification(
         return VerifyStatus(email=body.email, email_verified=False, message=generic)
 
     db.commit()
-    delivered = _queue_email(
-        background, email_service.send_verification_code, account.email, code
+    delivered = _send_email(
+        email_service.send_verification_code, account.email, code
     )
     logger.info(
-        "auth.verification_resent account_id=%s email_queued=%s", account.id, delivered
+        "auth.verification_resent account_id=%s email_delivered=%s", account.id, delivered
     )
 
     message = generic
@@ -204,7 +227,6 @@ def resend_verification(
 def login(
     request: Request,
     body: LoginRequest,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     ip = _client_ip(request)
@@ -219,11 +241,11 @@ def login(
     if not account.email_verified:
         _, code = auth_service.issue_new_code(db, account.email)
         db.commit()
-        delivered = _queue_email(
-            background, email_service.send_verification_code, account.email, code
+        delivered = _send_email(
+            email_service.send_verification_code, account.email, code
         )
         logger.info(
-            "auth.login_unverified account_id=%s ip=%s email_queued=%s",
+            "auth.login_unverified account_id=%s ip=%s email_delivered=%s",
             account.id,
             ip,
             delivered,
@@ -276,7 +298,6 @@ def me(account: Account = Depends(get_current_account)):
 def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Uniform response regardless of whether the account exists."""
@@ -298,11 +319,11 @@ def forgot_password(
         return SimpleMessage(message=generic)
 
     db.commit()
-    delivered = _queue_email(
-        background, email_service.send_password_reset, account.email, code
+    delivered = _send_email(
+        email_service.send_password_reset, account.email, code
     )
     logger.info(
-        "auth.reset_requested account_id=%s email_queued=%s", account.id, delivered
+        "auth.reset_requested account_id=%s email_delivered=%s", account.id, delivered
     )
     return SimpleMessage(
         message=generic, dev_code=_expose_dev_code(code, delivered=delivered)

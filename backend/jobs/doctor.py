@@ -72,6 +72,7 @@ def check_env() -> None:
     provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
     gemini = os.getenv("GEMINI_API_KEY", "").strip()
     claude = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    sendgrid = os.getenv("SENDGRID_API_KEY", "").strip()
     resend = os.getenv("RESEND_API_KEY", "").strip()
     jwt = os.getenv("JWT_SECRET", "").strip()
     mock = os.getenv("MOCK_SEARCH", os.getenv("MOCK_LINKUP", "false")).lower()
@@ -79,6 +80,7 @@ def check_env() -> None:
     print(f"  {DIM}LLM_PROVIDER      = {provider}{RESET}")
     print(f"  {DIM}GEMINI_API_KEY    = {mask(gemini)}{RESET}")
     print(f"  {DIM}ANTHROPIC_API_KEY = {mask(claude)}{RESET}")
+    print(f"  {DIM}SENDGRID_API_KEY  = {mask(sendgrid)}{RESET}")
     print(f"  {DIM}RESEND_API_KEY    = {mask(resend)}{RESET}")
     print(f"  {DIM}JWT_SECRET        = {mask(jwt)}{RESET}")
     print(f"  {DIM}MOCK_SEARCH       = {mock}{RESET}")
@@ -273,11 +275,22 @@ def check_email(test_recipient: str | None) -> None:
         return
 
     sender = os.getenv("EMAIL_FROM", "")
-    using_smtp = bool(os.getenv("SMTP_HOST")) and not os.getenv("RESEND_API_KEY")
-    provider = "SMTP" if using_smtp else "Resend"
+    # Mirrors the real priority order in email_service._send().
+    using_sendgrid = bool(os.getenv("SENDGRID_API_KEY"))
+    using_resend = not using_sendgrid and bool(os.getenv("RESEND_API_KEY"))
+    using_smtp = not using_sendgrid and not using_resend and bool(os.getenv("SMTP_HOST"))
+    provider = "SendGrid" if using_sendgrid else ("Resend" if using_resend else "SMTP")
     ok(f"Provider: {provider}. Sending as: {sender or '(default)'}")
 
-    if "resend.dev" in sender:
+    if using_sendgrid:
+        warn(
+            "SendGrid requires the EMAIL_FROM address to be a verified Single "
+            "Sender (or verified domain) — Settings > Sender Authentication in "
+            "the SendGrid dashboard. An unverified sender is rejected with "
+            "HTTP 401/403, reported below if you run this with --email."
+        )
+
+    if using_resend and "resend.dev" in sender:
         warn(
             "You are using Resend's shared onboarding@resend.dev sender. "
             "A sandboxed Resend account only delivers to the exact address "
@@ -329,6 +342,12 @@ def check_email(test_recipient: str | None) -> None:
     sent = email_service.send_verification_code(test_recipient, "123456")
     if sent:
         ok(f"Accepted for delivery to {test_recipient}. Check the inbox and spam folder.")
+    elif using_sendgrid:
+        fail(
+            f"Delivery to {test_recipient} was rejected. The reason is logged above.",
+            "If it mentions a Sender Identity, verify EMAIL_FROM's address "
+            "under SendGrid > Settings > Sender Authentication.",
+        )
     else:
         fail(
             f"Delivery to {test_recipient} was rejected. The reason is logged above.",
