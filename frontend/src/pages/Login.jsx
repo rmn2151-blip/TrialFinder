@@ -51,11 +51,17 @@ export default function Login() {
         const result = await register(email, password);
         go("verify");
         if (result?.dev_verification_code) {
-          // Either no provider is configured, delivery was rejected, or the
-          // operator enabled SHOW_VERIFICATION_CODE. Surface it prominently
-          // so nobody is stranded waiting on an inbox.
+          // A visible code means one of: no provider configured, delivery
+          // rejected, or SHOW_VERIFICATION_CODE is on. Only the first two are
+          // failures, so the wording follows verification_status rather than
+          // assuming the email never sent — telling someone delivery failed
+          // when it succeeded makes them stop checking their inbox.
           setShownCode(result.dev_verification_code);
-          setNotice("Account created. Use the code below to continue.");
+          setNotice(
+            result.verification_status === "sent"
+              ? "Account created. We emailed your code, and it is shown below too."
+              : "Account created, but we could not email this address. Use the code below."
+          );
         } else {
           setNotice("Account created. Check your email for a 6-digit code.");
         }
@@ -107,7 +113,16 @@ export default function Login() {
         setStage("verifyFromLogin");
         setCode("");
         setError("");
-        setNotice(msg);
+        // The server may include the code in this message. Lift it out into
+        // the callout so it is readable at a glance instead of buried mid
+        // sentence, and drop it from the prose so it is not shown twice.
+        const inline = msg.match(/\b(\d{6})\b/);
+        if (inline) {
+          setShownCode(inline[1]);
+          setNotice(msg.replace(/,? and it is also shown here: \d{6}/, "."));
+        } else {
+          setNotice(msg);
+        }
       } else {
         setError(msg);
       }

@@ -208,7 +208,15 @@ def resend_verification(
     message = generic
     dev_code = _expose_dev_code(code, delivered=delivered)
     if dev_code:
-        message = f"Email delivery failed. Your code is {dev_code}"
+        # Two different situations produce a visible code, and telling the
+        # user the wrong one is worse than saying nothing: claiming "delivery
+        # failed" when the email did send makes them stop checking the inbox
+        # and makes a working system look broken.
+        message = (
+            f"We emailed you a new code. It is also shown here: {dev_code}"
+            if delivered
+            else f"We could not deliver the email. Your code is {dev_code}"
+        )
 
     return VerifyStatus(
         email=account.email,
@@ -253,7 +261,12 @@ def login(
 
         detail = "Please verify your email first. We just sent you a new code."
         dev_code = _expose_dev_code(code, delivered=delivered)
-        if dev_code:
+        if dev_code and delivered:
+            detail = (
+                "Please verify your email. We just sent you a new code, and it "
+                f"is also shown here: {dev_code}"
+            )
+        elif dev_code:
             detail = (
                 "Please verify your email. We could not deliver the email, so "
                 f"here is your code: {dev_code}"
