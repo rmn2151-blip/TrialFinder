@@ -18,6 +18,7 @@ export default function Login() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [shownCode, setShownCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   function go(next) {
@@ -25,6 +26,7 @@ export default function Login() {
     setError("");
     setNotice("");
     setCode("");
+    setShownCode("");
   }
 
   async function handleSubmit(e) {
@@ -49,13 +51,11 @@ export default function Login() {
         const result = await register(email, password);
         go("verify");
         if (result?.dev_verification_code) {
-          // Delivery failed or no provider is configured. Show the code so
-          // the user is never stuck at the verification screen.
-          setNotice(
-            `Account created, but we could not email this address. ` +
-              `Your verification code is ${result.dev_verification_code} — ` +
-              `enter it below to continue.`
-          );
+          // Either no provider is configured, delivery was rejected, or the
+          // operator enabled SHOW_VERIFICATION_CODE. Surface it prominently
+          // so nobody is stranded waiting on an inbox.
+          setShownCode(result.dev_verification_code);
+          setNotice("Account created. Use the code below to continue.");
         } else {
           setNotice("Account created. Check your email for a 6-digit code.");
         }
@@ -175,6 +175,23 @@ export default function Login() {
         <p className="auth-card__subtitle">{copy.sub}</p>
 
         {notice && <p className="auth-card__notice">{notice}</p>}
+
+        {shownCode && (
+          <div className="code-callout">
+            <p className="code-callout__label">Your verification code</p>
+            <p className="code-callout__value">{shownCode}</p>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                setCode(shownCode);
+                // Fill the field for them rather than making them retype it.
+              }}
+            >
+              Use this code
+            </button>
+          </div>
+        )}
 
         {showCode && (
           <p className="auth-card__spam" role="note">

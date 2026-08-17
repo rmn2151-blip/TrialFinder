@@ -74,7 +74,7 @@ def db(monkeypatch):
 
 @pytest.fixture
 def profile(db):
-    account = auth_service.register(db, "owner@b.com", "password123")
+    account, _ = auth_service.register(db, "owner@b.com", "password123")
     p = PatientProfile(account_id=account.id, label="Mom", condition="NSCLC", location="NY")
     db.add(p)
     db.flush()
@@ -102,7 +102,7 @@ def test_get_owned_watch_scoped_to_account(db, profile):
     db.commit()
     owner_id = profile.account_id
     # Different account cannot reach the watch.
-    other = auth_service.register(db, "intruder@b.com", "password123")
+    other, _ = auth_service.register(db, "intruder@b.com", "password123")
     db.commit()
     assert watchlist_service.get_owned_watch(db, other.id, w.id) is None
     assert watchlist_service.get_owned_watch(db, owner_id, w.id) is not None

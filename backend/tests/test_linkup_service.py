@@ -1,69 +1,35 @@
 """
-Tests for linkup_service.py — runs in mock mode so no Linkup credits are used.
-Run with: MOCK_LINKUP=true pytest tests/test_linkup_service.py -v
+linkup_service was removed when trial data moved to ClinicalTrials.gov and
+ranking moved to Gemini/Claude.
+
+The module is kept as a tombstone that raises on use rather than deleted
+outright, so a stale import fails with an explanation and a pointer to the
+replacement instead of a bare ModuleNotFoundError. These tests pin that
+behaviour. The old suite exercised Linkup's mock responses and failed loudly
+once the module became a tombstone, which is noise rather than signal.
 """
 
 import asyncio
-import os
 
 import pytest
 
-os.environ["MOCK_LINKUP"] = "true"
-
 from services import linkup_service
-from services.cache import clear as clear_cache
 
 
-@pytest.fixture(autouse=True)
-def reset_cache():
-    clear_cache()
-    yield
-    clear_cache()
+def test_tombstone_explains_itself_and_names_the_replacement():
+    # search_for_trials is async, so the RuntimeError surfaces on await, not
+    # on the call that builds the coroutine.
+    with pytest.raises(RuntimeError) as exc:
+        asyncio.run(linkup_service.search_for_trials("anything"))
+
+    message = str(exc.value)
+    assert "removed" in message
+    # An error that does not name the replacement is just a wall.
+    assert "search_service" in message
 
 
-def test_mock_returns_expected_keys():
-    result = asyncio.run(
-        linkup_service.search_for_trials("NSCLC KRAS G12C", "New York, NY")
-    )
-    assert "trial_listings" in result
-    assert "recent_results" in result
-    assert "mechanism_coverage" in result
-    assert "sources" in result
-    assert isinstance(result["sources"], list)
-
-
-def test_mock_trial_listings_not_empty():
-    result = asyncio.run(
-        linkup_service.search_for_trials("lung cancer", "Chicago, IL")
-    )
-    assert len(result["trial_listings"]) > 50
-
-
-def test_query_builder_includes_location():
-    queries = linkup_service._build_queries(
-        "breast cancer HER2+", "San Francisco, CA", "trastuzumab"
-    )
-    assert any("San Francisco" in q["query"] for q in queries)
-    assert any("clinicaltrials.gov" in q.get("include_domains", []) for q in queries)
-
-
-def test_cache_prevents_duplicate_calls(monkeypatch):
-    call_count = {"n": 0}
-
-    original_fixture = linkup_service._load_mock_fixture
-
-    def counting_fixture():
-        call_count["n"] += 1
-        return original_fixture()
-
-    monkeypatch.setattr(linkup_service, "_load_mock_fixture", counting_fixture)
-
-    # Two identical calls
-    asyncio.run(linkup_service.search_for_trials("NSCLC", "New York"))
-    asyncio.run(linkup_service.search_for_trials("NSCLC", "New York"))
-
-    # Mock mode doesn't use the real cache path, but test that cache module works
-    from services.cache import make_key, get, set as cache_set
-    key = make_key("nsclc", "new york", None)
-    cache_set(key, {"trial_listings": "cached"})
-    assert get(key)["trial_listings"] == "cached"
+def test_private_helpers_also_raise():
+    """No half-working leftovers that quietly return None."""
+    for name in ("_build_queries", "_load_mock_fixture"):
+        with pytest.raises(RuntimeError):
+            getattr(linkup_service, name)()

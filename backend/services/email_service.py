@@ -29,7 +29,7 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import formatdate, make_msgid, parseaddr
 
 import httpx
 
@@ -55,14 +55,70 @@ def _smtp_configured() -> bool:
     )
 
 
+def active_provider() -> str:
+    """
+    Which path _send() will actually take: "sendgrid", "resend", "smtp" or
+    "none".
+
+    Exposed so the startup log and /api/health can state the truth instead of
+    inferring it from a single variable. The previous startup log guessed
+    "Resend if RESEND_API_KEY is set, otherwise SMTP", which reported a
+    SendGrid deployment as SMTP — the exact opposite of what was happening.
+    """
+    if _sendgrid_key():
+        return "sendgrid"
+    if _api_key():
+        return "resend"
+    if _smtp_configured():
+        return "smtp"
+    return "none"
+
+
 def is_configured() -> bool:
     """True when any real delivery path is available."""
-    return bool(_sendgrid_key()) or bool(_api_key()) or _smtp_configured()
+    return active_provider() != "none"
+
+
+def config_problem() -> str | None:
+    """
+    A human-readable reason the current email config will fail, or None.
+
+    Checked at startup so a misconfiguration is visible in the deploy log
+    rather than discovered later by a user who never receives a code.
+    """
+    provider = active_provider()
+    if provider == "none":
+        return (
+            "No email provider is configured. Set SENDGRID_API_KEY (plus "
+            "EMAIL_FROM matching a verified SendGrid sender), or RESEND_API_KEY, "
+            "or the SMTP_* variables."
+        )
+    if provider == "sendgrid":
+        _, sender = _parse_from(_from_address())
+        if not os.getenv("EMAIL_FROM", "").strip():
+            return (
+                "SENDGRID_API_KEY is set but EMAIL_FROM is not. SendGrid "
+                "rejects any send whose From address is not a verified sender, "
+                "so every email will fail with HTTP 403. Set EMAIL_FROM to the "
+                "address you verified under Sender Authentication."
+            )
+        if sender.endswith("resend.dev"):
+            return (
+                f"EMAIL_FROM is {sender!r}, which belongs to Resend, but the "
+                "active provider is SendGrid. SendGrid will reject it. Set "
+                "EMAIL_FROM to your verified SendGrid sender."
+            )
+    return None
 
 
 def _from_address() -> str:
     """
     The From header.
+
+    Both HTTP providers require this to be an address you have proven you
+    control: a verified Single Sender or domain in SendGrid, a verified domain
+    in Resend. An unverified From is rejected outright, so there is no useful
+    default here beyond the Resend sandbox sender.
 
     Note on Gmail SMTP: Gmail rewrites this to the authenticated account
     unless the address is a verified alias on that account, so setting
@@ -74,6 +130,16 @@ def _from_address() -> str:
     explicit = os.getenv("EMAIL_FROM")
     if explicit:
         return explicit
+    if _sendgrid_key():
+        # There is no safe fallback: SendGrid rejects unverified senders, and
+        # guessing an address here would turn a clear config error into an
+        # opaque 403. Return empty so the failure names the real cause.
+        logger.error(
+            "EMAIL_FROM is not set but SendGrid is the active provider. "
+            "SendGrid will reject this send. Set EMAIL_FROM to your verified "
+            "sender address."
+        )
+        return ""
     if _smtp_configured():
         return os.getenv("SMTP_USER", "")
     return "TrialFinder <onboarding@resend.dev>"
@@ -176,6 +242,16 @@ def _send_via_smtp(to_email: str, subject: str, text: str, html: str) -> bool:
     msg["Subject"] = subject
     msg["From"] = _from_address()
     msg["To"] = to_email
+    # Date and Message-ID are not optional in practice. Python's smtplib does
+    # not add them, and receiving filters treat a message missing either one
+    # as machine-generated bulk mail, which is a fast route to being dropped
+    # without a bounce. The sending domain is derived from the From address so
+    # the Message-ID does not contradict it.
+    msg["Date"] = formatdate(localtime=True)
+    _, sender_email = _parse_from(msg["From"] or "")
+    msg["Message-ID"] = make_msgid(
+        domain=sender_email.split("@")[-1] if "@" in sender_email else None
+    )
     reply_to = _reply_to()
     if reply_to:
         msg["Reply-To"] = reply_to

@@ -2165,6 +2165,32 @@ main {
 }
 
 /* ---------- Auth disclaimers ---------- */
+/* Shown when the code could not be emailed (or the demo override is on). */
+.code-callout {
+  background: var(--brand-tint);
+  border: 1px solid #b9d3fb;
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+.code-callout__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--brand-dark);
+}
+.code-callout__value {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  color: var(--brand-dark);
+  margin: 0.3rem 0 0.6rem;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
 .auth-card__spam {
   background: var(--amber-tint);
   color: #7a4f06;

@@ -70,10 +70,38 @@ async def health_check():
     body = {"status": "ok", "service": "TrialFinder"}
     if state:
         body["database"] = state.get("database", "unknown")
-        errors = state.get("errors") or []
-        if errors:
-            body["status"] = "degraded"
-            body["errors"] = errors
+
+    # Email config is reported here because it is the one subsystem whose
+    # failure is completely silent from the outside: accounts get created,
+    # the API returns 201, and no code ever arrives. Being able to read the
+    # active provider and its sender over HTTP turns "emails don't work" into
+    # a one-request diagnosis, without shell access to the deploy logs.
+    #
+    # Neither field is a secret. The provider name is not sensitive, and the
+    # sender address appears in the From header of every email already. The
+    # API keys themselves are never exposed.
+    try:
+        from services import email_service
+
+        provider = email_service.active_provider()
+        email_state: dict = {"provider": provider}
+        if provider != "none":
+            import os
+
+            email_state["sending_as"] = (
+                os.getenv("EMAIL_FROM") or os.getenv("SMTP_USER") or "(default)"
+            )
+        problem = email_service.config_problem()
+        if problem:
+            email_state["problem"] = problem
+        body["email"] = email_state
+    except Exception as exc:  # never let a diagnostic break the probe
+        body["email"] = {"provider": "unknown", "problem": str(exc)[:200]}
+
+    errors = (state.get("errors") or []) if state else []
+    if errors:
+        body["status"] = "degraded"
+        body["errors"] = errors
     return body
 
 

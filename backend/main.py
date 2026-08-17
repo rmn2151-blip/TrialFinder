@@ -246,19 +246,48 @@ async def startup():
     try:
         from services import email_service
 
-        if email_service.is_configured():
-            # Mirrors the real priority order in email_service._send().
-            if os.getenv("SENDGRID_API_KEY"):
-                provider = "SendGrid"
-            elif os.getenv("RESEND_API_KEY"):
-                provider = "Resend"
-            else:
-                provider = "SMTP"
+        provider = email_service.active_provider()
+        if provider != "none":
+            # Asked of email_service itself rather than re-derived from the
+            # environment here. A second copy of the priority order is a copy
+            # that drifts, and when it drifts the log confidently names the
+            # wrong provider while you debug the right one.
             logger.info(
                 "  email         = %s, sending as %s",
                 provider,
                 os.getenv("EMAIL_FROM") or os.getenv("SMTP_USER") or "(default)",
             )
+
+            # Configured is not the same as working. This catches combinations
+            # that are certain to fail — above all a SendGrid key with no
+            # verified EMAIL_FROM — at boot, rather than leaving a real user to
+            # discover it during signup.
+            problem = email_service.config_problem()
+            if problem:
+                logger.error("  email         = MISCONFIGURED. %s", problem)
+                STARTUP_STATE["errors"].append(f"Email misconfigured. {problem}")
+
+            # Credentials for the losing providers do no harm to delivery, but
+            # they mislead anyone debugging: this line is the only place that
+            # says which one actually wins.
+            others = {
+                "sendgrid": "SENDGRID_API_KEY",
+                "resend": "RESEND_API_KEY",
+                "smtp": "SMTP_HOST/SMTP_USER/SMTP_PASSWORD",
+            }
+            others.pop(provider, None)
+            ignored = [
+                var
+                for name, var in others.items()
+                if os.getenv(var.split("/")[0])
+            ]
+            if ignored:
+                logger.warning(
+                    "  email         = %s wins, so these are ignored: %s. Safe "
+                    "to delete them.",
+                    provider,
+                    "; ".join(ignored),
+                )
         else:
             logger.error(
                 "  email         = NOT CONFIGURED. Verification codes will NOT "
